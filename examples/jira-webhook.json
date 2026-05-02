@@ -1,0 +1,16 @@
+{
+  "webhookEvent": "jira:issue_updated",
+  "issue": {
+    "key": "WAAS-456",
+    "fields": {
+      "summary": "Form focus for selectize field not working",
+      "description": "Configure a selectize enabled form field, e.g. MaterialCategory.xml in hex to have focus as described here. Open the form.\n\nExpected behavior: Form on load should have selectize field enabled.\nActual behavior: Selectize field is not enabled.\n\nDev Notes:\nProbably need to add focus() method in heliumselect.js and use Selectize api to focus. Consider adjust height widgets.",
+      "project": {
+        "key": "WAAS"
+      },
+      "reporter": {
+        "displayName": "Demo User"
+      }
+    }
+  }
+}

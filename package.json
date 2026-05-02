@@ -1,0 +1,9 @@
+{
+  "name": "pi-jira-agent-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.69.0"
+  }
+}
