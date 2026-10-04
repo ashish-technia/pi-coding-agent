@@ -163,12 +163,12 @@ class PiAgentExecutor:
                 f"Pi SDK runner command not found: {self.node_command}. "
                 "Ensure Node.js is installed and PI_NODE_COMMAND is correct."
             ) from exc
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             progress.add_event(issue.key, {"source": "pi", "ev": "error", "text": f"timed out after {self.timeout_seconds}s"})
             raise RuntimeError(
                 f"Pi SDK runner timed out after {self.timeout_seconds}s "
                 f"(provider={self.provider}, model={self.model}). Raise PI_TIMEOUT_SECONDS or lower PI_THINKING_LEVEL."
-            )
+            ) from exc
 
         if returncode != 0:
             details = stderr.strip() or stdout.strip() or "<no stdout/stderr output>"

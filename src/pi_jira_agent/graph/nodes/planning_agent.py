@@ -1,15 +1,14 @@
 import logging
-from collections.abc import Awaitable, Callable
 
 from ...models import AgentResult, JiraIssue
 from ...pi_agent import PiAgentExecutor
 from .. import progress
 from ..repo_context import RepoMap, describe, repo_roots_payload, selected_repos
-from ..state import GraphState
+from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
 
-PlanningNode = Callable[[GraphState], Awaitable[dict]]
+PlanningNode = AsyncNode
 
 
 def make_planning_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap) -> PlanningNode:

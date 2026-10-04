@@ -1,4 +1,5 @@
-from typing import Literal, TypedDict
+from collections.abc import Coroutine
+from typing import Any, Literal, Protocol, TypedDict
 
 from ..models import AgentResult, JiraIssue, RequirementsSpec, ScopeCheck
 
@@ -61,3 +62,9 @@ class GraphState(TypedDict, total=False):
     current_node: str | None  # persisted so restarts can show where the run is
     retry_count: int  # error-based retries (distinct from the review loop)
     error: str | None
+
+
+class AsyncNode(Protocol):
+    """An async graph node. The parameter must be named ``state`` for LangGraph's StateNode."""
+
+    def __call__(self, state: GraphState) -> Coroutine[Any, Any, dict]: ...

@@ -8,7 +8,7 @@ models below; the graph only ever sees validated dicts.
 from __future__ import annotations
 
 import re
-from typing import Literal, Union
+from typing import Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
@@ -92,18 +92,18 @@ class FinalFinish(BaseModel):
 
 
 # Pydantic's smart union picks the member whose (type, action) literals match.
-Decision = Union[
-    RequirementsApprove,
-    RequirementsRevise,
-    RequirementsCancel,
-    PlanApprove,
-    PlanRefine,
-    PlanReject,
-    PhaseContinue,
-    PhaseStop,
-    FinalCreatePr,
-    FinalFinish,
-]
+Decision = (
+    RequirementsApprove
+    | RequirementsRevise
+    | RequirementsCancel
+    | PlanApprove
+    | PlanRefine
+    | PlanReject
+    | PhaseContinue
+    | PhaseStop
+    | FinalCreatePr
+    | FinalFinish
+)
 
 _adapter = TypeAdapter(Decision)
 

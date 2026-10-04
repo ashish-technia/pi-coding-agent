@@ -1,16 +1,15 @@
 import logging
-from collections.abc import Awaitable, Callable
 
 from ...git_client import GitBranchClient
 from ...models import AgentResult, JiraIssue
 from ...pi_agent import PiAgentExecutor
 from .. import progress
 from ..repo_context import RepoMap, describe, repo_roots_payload, selected_repos
-from ..state import GraphState
+from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
 
-CodingNode = Callable[[GraphState], Awaitable[dict]]
+CodingNode = AsyncNode
 
 
 def phase_plan(plan: AgentResult, mode: str, phase_index: int) -> AgentResult:

@@ -1,17 +1,16 @@
 import logging
-from collections.abc import Awaitable, Callable
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from ...models import AgentResult, JiraIssue, RequirementsSpec
 from .. import progress
-from ..state import GraphState
+from ..state import AsyncNode, GraphState
 from .coding_agent import phase_plan
 
 logger = logging.getLogger(__name__)
 
-ReviewNode = Callable[[GraphState], Awaitable[dict]]
+ReviewNode = AsyncNode
 
 _SYSTEM_PROMPT = (
     "You are a senior engineer performing code review. You are given the approved requirement, "

@@ -3,7 +3,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 _BLOCK_NODE_TYPES = {
     "paragraph",
     "heading",

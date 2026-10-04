@@ -400,4 +400,4 @@ class Settings(BaseSettings):
         }
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]  # required values come from the environment

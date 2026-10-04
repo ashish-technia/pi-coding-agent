@@ -7,6 +7,7 @@ interrupt as a comment and maps human replies back into decisions.
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from ..graph.decisions import command_help, parse_comment_command
 from ..jira_client import JiraClient
@@ -67,7 +68,7 @@ def render_pending(interrupt_value: dict) -> str:
             lines.append("Pull request creation is disabled in this environment; only /finish is available.")
     else:
         lines = [f"Waiting for input ({kind})."]
-    lines += ["", command_help(kind)]
+    lines += ["", command_help(cast(str, kind))]
     return "\n".join(lines)
 
 
