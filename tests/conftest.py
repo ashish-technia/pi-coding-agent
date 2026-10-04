@@ -62,6 +62,8 @@ os.environ.update(
         # Opt in to the Postgres checkpointer/registry with PI_TEST_DATABASE_URL.
         "DATABASE_URL": os.environ.get("PI_TEST_DATABASE_URL", ""),
         "REDIS_URL": "",
+        # The Docker image sets REPOS_ROOT; tests that need it patch settings directly.
+        "REPOS_ROOT": "",
         "REVIEW_RULES_PATH": str(_TMP / "no-rules.md"),
     }
 )
