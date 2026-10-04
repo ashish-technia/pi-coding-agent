@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -151,12 +151,79 @@ def normalize_jira_text(value: Any) -> str:
     return str(value)
 
 
+class JiraComment(BaseModel):
+    id: str = ""
+    author: str = ""
+    author_account_id: str = ""
+    created: str = ""
+    body: str = ""
+
+
 class JiraIssue(BaseModel):
     key: str
     summary: str
     description: str = ""
     project_key: str
     reporter: str | None = None
+    issue_type: str = ""
+    status: str = ""
+    labels: list[str] = []
+    comments: list[JiraComment] = []
+    url: str = ""
+
+    def as_context(self) -> str:
+        """Plain-text rendering handed to the LLM stages."""
+        lines = [
+            f"Jira key: {self.key}",
+            f"Type: {self.issue_type or 'unknown'}   Status: {self.status or 'unknown'}",
+            f"Summary: {self.summary}",
+            f"Reporter: {self.reporter or ''}",
+            f"Labels: {', '.join(self.labels) if self.labels else '-'}",
+            "",
+            "Description:",
+            self.description or "(empty)",
+        ]
+        if self.comments:
+            lines += ["", f"Comments ({len(self.comments)}):"]
+            for c in self.comments:
+                lines.append(f"--- {c.author or 'unknown'} @ {c.created}")
+                lines.append(c.body)
+        return "\n".join(lines)
+
+
+def issue_from_api(payload: dict, base_url: str = "") -> JiraIssue:
+    """Build a JiraIssue from the REST v3 GET /issue response (or a webhook `issue`)."""
+    fields = payload.get("fields", {}) or {}
+    project = fields.get("project", {}) or {}
+    reporter = fields.get("reporter", {}) or {}
+    issue_type = fields.get("issuetype", {}) or {}
+    status = fields.get("status", {}) or {}
+    comment_block = fields.get("comment", {}) or {}
+    comments = []
+    for c in comment_block.get("comments", []) or []:
+        author = c.get("author", {}) or {}
+        comments.append(
+            JiraComment(
+                id=str(c.get("id", "")),
+                author=author.get("displayName", ""),
+                author_account_id=author.get("accountId", ""),
+                created=c.get("created", ""),
+                body=normalize_jira_text(c.get("body")),
+            )
+        )
+    key = payload["key"]
+    return JiraIssue(
+        key=key,
+        summary=normalize_jira_text(fields.get("summary") or ""),
+        description=normalize_jira_text(fields.get("description") or ""),
+        project_key=project.get("key", ""),
+        reporter=reporter.get("displayName"),
+        issue_type=issue_type.get("name", ""),
+        status=status.get("name", ""),
+        labels=list(fields.get("labels") or []),
+        comments=comments,
+        url=f"{base_url.rstrip('/')}/browse/{key}" if base_url else "",
+    )
 
 
 class JiraWebhookPayload(BaseModel):
@@ -164,16 +231,94 @@ class JiraWebhookPayload(BaseModel):
     issue: dict
 
     def to_issue(self) -> JiraIssue:
-        fields = self.issue.get("fields", {})
-        project = fields.get("project", {}) or {}
-        reporter = fields.get("reporter", {}) or {}
-        return JiraIssue(
-            key=self.issue["key"],
-            summary=normalize_jira_text(fields.get("summary") or ""),
-            description=normalize_jira_text(fields.get("description") or ""),
-            project_key=project.get("key", ""),
-            reporter=reporter.get("displayName"),
-        )
+        return issue_from_api(self.issue)
+
+
+# --- Repositories ------------------------------------------------------------
+
+
+class RepoConfig(BaseModel):
+    """One repository the agents may work in, as listed in repos.json.
+
+    ``name`` is the identifier everything else keys on: the prefix on plan-step
+    paths, the key in the per-repo diff and PR maps, and the value the UI
+    checkboxes and the ``/repos`` command send back.
+    """
+
+    name: str = Field(description="Short identifier, used as the path prefix in plan steps.")
+    path: str = Field(default="", description="Local clone the agents read and edit.")
+    clone_url: str = Field(
+        default="",
+        description=(
+            "Git URL to clone from when `path` does not exist yet (Docker). Empty means "
+            "derive it from the Bitbucket host, workspace and repo slug."
+        ),
+    )
+    bitbucket_repo_slug: str = Field(default="", description="Falls back to BITBUCKET_REPO_SLUG.")
+    target_branch: str = Field(default="", description="PR destination; falls back to BITBUCKET_TARGET_BRANCH.")
+    default_selected: bool = Field(default=False, description="Ticked by default in the UI picker.")
+    properties: dict[str, str] = Field(
+        default_factory=dict,
+        description="Free-form key/value facts about the repo, passed to the planning and coding agents.",
+    )
+
+
+# --- Requirements stage ------------------------------------------------------
+
+
+class RequirementsSpec(BaseModel):
+    """The framed requirement the human approves before any planning happens."""
+
+    title: str
+    problem: str = Field(description="What is wrong or missing today, in the user's terms.")
+    goals: list[str] = Field(default_factory=list, description="Outcomes the change must achieve.")
+    acceptance_criteria: list[str] = Field(default_factory=list, description="Testable statements of done.")
+    in_scope: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list, description="Things only the reporter can answer.")
+    sources: list[str] = Field(
+        default_factory=list,
+        description="Where each requirement came from: description, a comment author, or inference.",
+    )
+
+
+class ScopeFinding(BaseModel):
+    item: str
+    kind: Literal["added", "removed", "changed"]
+    verdict: Literal["in_scope", "out_of_scope", "unclear"]
+    reason: str
+
+
+class ScopeCheck(BaseModel):
+    """Result of comparing the user's edited requirements against the original issue."""
+
+    findings: list[ScopeFinding] = []
+
+    @property
+    def out_of_scope_items(self) -> list[str]:
+        return [f.item for f in self.findings if f.verdict == "out_of_scope"]
+
+
+# --- Plan stage --------------------------------------------------------------
+
+
+class PlanPhase(BaseModel):
+    name: str
+    description: str = ""
+    step_indexes: list[int] = Field(default_factory=list, description="0-based indexes into plan_steps.")
+
+
+class PlanStep(BaseModel):
+    """One concrete edit in an implementation plan, grounded in the repository."""
+
+    file: str
+    action: Literal["modify", "create", "delete"] = "modify"
+    change: str
+    evidence: str = ""
+    # Which repository `file` lives in. Empty on single-repo runs, where there is
+    # nothing to disambiguate and the path is relative to the only clone.
+    repo: str = ""
 
 
 class AgentResult(BaseModel):
@@ -182,6 +327,16 @@ class AgentResult(BaseModel):
     pr_title: str
     pr_description: str
     files_changed: list[str] = []
+    # Structured plan fields. Filled by the planning agent (plan mode); the coding
+    # agent receives them as its work order and may echo them back.
+    analysis: str = ""
+    plan_steps: list[PlanStep] = []
+    verification: list[str] = []
+    open_questions: list[str] = []
+    # Planner's direct reply to the reviewer's refinement notes (empty on a first plan).
+    notes_response: str = ""
+    # Optional grouping of plan_steps into phases the user may execute one at a time.
+    phases: list[PlanPhase] = []
 
 
 class PullRequestResult(BaseModel):

@@ -1,0 +1,29 @@
+{
+  "_comment": "Copy to repos.json (git-ignored) and point REPOS_CONFIG_PATH at it. Delete this key.",
+  "repos": [
+    {
+      "name": "web",
+      "path": "C:/projects/technia/web-app",
+      "bitbucket_repo_slug": "web-app",
+      "target_branch": "develop",
+      "default_selected": true,
+      "properties": {
+        "language": "typescript",
+        "tests": "npm test",
+        "notes": "Vite SPA. Components live under src/components."
+      }
+    },
+    {
+      "name": "api",
+      "path": "C:/projects/technia/api-service",
+      "bitbucket_repo_slug": "api-service",
+      "target_branch": "main",
+      "default_selected": false,
+      "properties": {
+        "language": "python",
+        "tests": "pytest -q",
+        "notes": "FastAPI. The web app calls /api/v2 here."
+      }
+    }
+  ]
+}

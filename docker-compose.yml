@@ -1,0 +1,109 @@
+# Full stack: the agent, Postgres (checkpoints + run registry) and Redis (job queue).
+#
+#   1. cp .env.example .env   and fill in the secrets
+#   2. set TARGET_REPO_PATH in .env to a local clone of the repo the agent works in
+#   3. docker compose up -d --build      →  http://localhost:8000
+#
+# Settings come from .env. The `environment:` block below overrides only the values
+# that must differ inside the container network (service hostnames, container paths);
+# environment variables take precedence over the mounted .env file.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pi-jira-agent:latest
+    container_name: pi-jira-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Container paths, not host paths.
+      REPO_LOCAL_PATH: /workspace/repo
+      # The repository list. When the file is absent the single clone above is used.
+      REPOS_CONFIG_PATH: ${REPOS_CONFIG_PATH:-/app/repos.json}
+      # Every repo in repos.json is cloned to /workspace/<name>, so the host paths in
+      # that file are ignored here and one repos.json works on the host and in Docker.
+      REPOS_ROOT: ${REPOS_ROOT:-/workspace}
+      GRAPH_CHECKPOINT_DB: /app/data/graph_checkpoints.sqlite
+      REVIEW_RULES_PATH: /app/review-rules.md
+      # Service hostnames on the compose network. Set DATABASE_URL/REDIS_URL to ""
+      # here to fall back to SQLite and the in-memory queue.
+      DATABASE_URL: postgresql://pijira:pijira@postgres:5432/pijira
+      REDIS_URL: redis://redis:6379/0
+      # Commit identity used by the coding agent.
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-pi-jira-agent}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-pi-jira-agent@localhost}
+      # Line endings in the mounted checkout: input (default) | true (Windows host) | false
+      GIT_AUTOCRLF: ${GIT_AUTOCRLF:-input}
+      # Override the HTTPS git username when the token type needs a specific one.
+      GIT_HTTPS_USERNAME: ${GIT_HTTPS_USERNAME:-}
+      GIT_HTTPS_PASSWORD: ${GIT_HTTPS_PASSWORD:-}
+      APP_PORT: 8090
+    ports:
+      - "${APP_PORT:-8090}:8090"
+    volumes:
+      # Where the repositories live. On first start the entrypoint clones every repo in
+      # repos.json to /workspace/<name>; the named volume keeps them across restarts.
+      - pijira_workspace:/workspace
+      # Optional: reuse an existing host clone instead of letting the container clone it.
+      # A bind wins over the volume for that one path; the directory name must match the
+      # repo's "name" in repos.json.
+      # - C:/projects/technia/waas-server:/workspace/WAAS-SERVER
+      # Single-repository setup only (no repos.json): the host clone to work in.
+      - ${TARGET_REPO_PATH:-./docker/placeholder-repo}:/workspace/repo
+      # SQLite checkpoints when DATABASE_URL is empty; harmless otherwise.
+      - pijira_data:/app/data
+      # Editable without rebuilding the image.
+      - ./review-rules.md:/app/review-rules.md:ro
+      # The repository list, read at startup - changing it needs `docker compose up -d app`.
+      - ./repos.json:/app/repos.json:ro
+      # Pi agent context (AGENTS.md, skills, prompts).
+      - ./.pi-agent:/app/.pi-agent:ro
+      # Uncomment to push over SSH with your own keys (read-only).
+      # - ${SSH_DIR:-~/.ssh}:/home/app/.ssh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # On a Linux host whose uid is not 1000, uncomment so the mounted repo stays writable:
+    # user: "${UID:-1000}:${GID:-1000}"
+
+  postgres:
+    image: postgres:16
+    container_name: pi-jira-agent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pijira
+      POSTGRES_PASSWORD: pijira
+      POSTGRES_DB: pijira
+    ports:
+      # Host access for psql and for running the test suite against Postgres.
+      - "${POSTGRES_PORT:-5440}:5432"
+    volumes:
+      - pijira_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pijira -d pijira"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pi-jira-agent-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6390}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pijira_pgdata:
+  pijira_data:
+  # Cloned repositories. `docker compose down -v` deletes them and they are re-cloned.
+  pijira_workspace:

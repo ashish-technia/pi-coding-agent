@@ -1,0 +1,147 @@
+---
+sidebar_position: 3
+title: Graph State
+---
+
+# Graph State
+
+`GraphState` is a `TypedDict` (all fields optional via `total=False`) that flows through every
+node and is fully serialized to the checkpoint after each step. It mirrors
+`src/pi_jira_agent/graph/state.py`.
+
+```python
+class GraphState(TypedDict, total=False):
+    # Input
+    issue_key: str
+    issue: JiraIssue                  # fetched (or supplied inline)
+    channel: Channel                  # "ui" | "jira" - where pauses are announced
+    repos: list[str]                  # repo names this run works in; [0] is the primary
+
+    # Requirements stage
+    requirements_original: RequirementsSpec   # the agent's framing, kept for comparison
+    requirements: RequirementsSpec            # current version, may include human edits
+    requirements_notes: str                   # human "revise" notes for the next pass
+    scope_check: ScopeCheck | None            # findings for the latest human edit
+    scope_acknowledged: bool                  # human kept flagged out-of-scope items
+
+    # Plan stage
+    plan_result: AgentResult
+    plan_notes: str                   # human "refine" notes for the next planning pass
+    execution_mode: ExecutionMode     # "all" | "phased"
+    phase_index: int                  # 0-based phase being implemented
+    phases_total: int
+
+    # Coding / review loop
+    code_result: AgentResult
+    diffs: dict[str, str]             # repo name -> working-tree diff; untouched repos absent
+    phase_diffs: list[dict[str, str]] # one snapshot of the above per accepted phase
+    review_approved: bool
+    review_feedback: str
+    iteration: int                    # coding->review cycles within the current phase
+    max_iterations: int               # from REVIEW_MAX_ITERATIONS
+
+    # Delivery
+    pr_title: str
+    pr_urls: dict[str, str]           # repo name -> PR URL, one per repo that had changes
+
+    # Bookkeeping
+    status: Status
+    current_node: str | None          # persisted so restarts can show where the run is
+    retry_count: int                  # error-based retries, separate from the review loop
+    error: str | None
+```
+
+## Why repos are stored by name
+
+`repos` holds names, not paths or config objects. Checkpoints then stay small and survive edits
+to `repos.json`: the `RepoConfig` registry and the git/Bitbucket clients are rebuilt at startup
+in `graph/build.py`, and each node looks up what it needs by name through
+`graph/repo_context.py`. A name that has disappeared from the config is skipped rather than
+killing an in-flight run.
+
+Everything downstream of the selection is keyed the same way — `diffs`, `phase_diffs` and
+`pr_urls` are all maps from repo name — so a single-repo run is simply a map with one entry.
+
+---
+
+## Status values
+
+| Value | Meaning |
+|---|---|
+| `fetching` | Loading the Jira issue |
+| `framing_requirements` | The requirements agent is writing the spec |
+| `pending_requirements` | Waiting for the human to approve/revise the requirements |
+| `planning` | The planning agent is reading the repositories |
+| `pending_plan` | Waiting for the human to approve/refine the plan |
+| `coding` | The coding agent is editing the repositories |
+| `reviewing` | The review agent is judging the diffs |
+| `pending_phase` | A phase passed review; waiting for continue/stop |
+| `pending_final` | All phases done; waiting for the final decision |
+| `creating_pr` | Committing, pushing and opening pull requests |
+| `done` | Terminal success (PRs created, or finished without one) |
+| `failed` | Review exhausted `max_iterations`; terminal failure |
+| `cancelled` | The human cancelled or rejected; terminal |
+
+The status endpoint also returns two synthetic statuses not stored in state:
+
+| Synthetic status | Meaning |
+|---|---|
+| `not_started` | No checkpoint exists for this issue key |
+| `stuck_error` | The graph has `next` nodes but is not running — a node raised an exception |
+
+While a gate is paused the effective status is derived from the pending interrupt type, because
+a node's state update is only stored when the node returns.
+
+---
+
+## AgentResult model
+
+Both `plan_result` and `code_result` are `AgentResult` instances:
+
+```python
+class PlanStep(BaseModel):
+    file: str                 # path relative to its repository's root
+    action: Literal["modify", "create", "delete"] = "modify"
+    change: str               # the exact edit to make
+    evidence: str = ""        # what is currently in the file at that spot
+    repo: str = ""            # which repository; empty on single-repo runs
+
+class AgentResult(BaseModel):
+    branch_name: str          # e.g. "feature/HE-1234-fix-login" - the same in every repo
+    commit_message: str
+    pr_title: str
+    pr_description: str       # PR body (Markdown)
+    files_changed: list[str]  # "repo-name/path" when the change spans repos, else "path"
+    analysis: str = ""        # code-grounded findings (planner)
+    plan_steps: list[PlanStep] = []
+    verification: list[str] = []
+    open_questions: list[str] = []
+    notes_response: str = ""  # planner's reply to refinement notes
+    phases: list[PlanPhase] = []
+```
+
+`plan_result` carries the structured plan the human approves; the same object is handed to the
+coding agent as its work order and to the review agent as its checklist. `code_result` uses the
+same shape to report what was actually done.
+
+Anything stored in the state must be listed in `make_serde()` in `graph/build.py`, or the
+checkpoint fails to deserialize.
+
+---
+
+## current_node — restart recovery field
+
+Every node sets `current_node` in its return dict:
+
+```python
+return {
+    "plan_result": plan_result,
+    "status": "pending_plan",
+    "current_node": "planning_agent",   # persisted to checkpoint
+}
+```
+
+`get_status()` in `service.py` prefers the **in-process** `progress` dict (updated at the start
+of each node, before the checkpoint write) for real-time granularity. After a server restart the
+`progress` dict is empty, so it falls back to `values["current_node"]` from the checkpoint — this
+way the UI always shows which step was last running.

@@ -31,6 +31,15 @@ class GitBranchClient:
     def push_branch(self, source_branch: str) -> None:
         self._run("git", "push", "-u", self.remote_name, source_branch)
 
+    def diff(self, *, target_branch: str | None = None) -> str:
+        if target_branch:
+            completed = self._run_capture("git", "diff", target_branch)
+        else:
+            completed = self._run_capture("git", "diff", "HEAD")
+        if completed.returncode != 0:
+            raise RuntimeError(f"git diff failed: {completed.stderr}")
+        return completed.stdout
+
     def ahead_count(self, *, target_branch: str, source_branch: str) -> int:
         completed = self._run_capture(
             "git",

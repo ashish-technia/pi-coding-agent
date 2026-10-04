@@ -1,0 +1,49 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pi-jira-agent",
+      "runtimeExecutable": "myenv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "pi_jira_agent",
+        "--port",
+        "8000",
+        "--reload"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "demo",
+      "runtimeExecutable": "myenv/Scripts/python.exe",
+      "runtimeArgs": [
+        "scripts/demo_server.py",
+        "8091"
+      ],
+      "port": 8091
+    },
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "frontend",
+      "port": 5173
+    },
+    {
+      "name": "docusaurus",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "docusaurus",
+        "start",
+        "--port",
+        "3001"
+      ],
+      "cwd": "docs",
+      "port": 3001,
+      "autoPort": false
+    }
+  ]
+}

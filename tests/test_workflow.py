@@ -1,0 +1,226 @@
+"""End-to-end graph behaviour with every external system faked."""
+
+import uuid
+
+import pytest
+
+from tests.conftest import wait_paused
+
+pytestmark = pytest.mark.asyncio
+
+
+def _key() -> str:
+    return f"TEST-{uuid.uuid4().hex[:6].upper()}"
+
+
+async def test_full_flow_phased_with_scope_warning_review_retry_and_pr(service, fakes):
+    key = _key()
+    await service.start_run(key)
+
+    # 1. Requirements framed from issue + comments, run pauses for approval.
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_requirements"
+    assert status["pending"]["type"] == "requirements_approval"
+    assert status["requirements"]["title"] == "Add retry to client"
+    assert "Max 3 attempts please." in fakes["llm"].last_prompts["framing"], "comments must reach the analyst"
+
+    # 2. Human edits requirements adding an out-of-scope goal -> scope check flags it.
+    edited = dict(status["requirements"])
+    edited["goals"] = edited["goals"] + ["Also add caching"]
+    await service.submit_decision(key, {"action": "approve", "requirements": edited})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_requirements"
+    assert status["scope_check"]["findings"][0]["verdict"] == "out_of_scope"
+    assert fakes["runner"].calls == [], "planning must not start while scope is unresolved"
+
+    # 3. Human removes the flagged item and approves -> planning runs against the requirements.
+    edited["goals"] = [g for g in edited["goals"] if g != "Also add caching"]
+    fakes["llm"].scope_flags = False
+    await service.submit_decision(key, {"action": "approve", "requirements": edited})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_plan"
+    assert status["pending"]["type"] == "plan_approval"
+    assert status["phases_total"] == 2
+    plan_call = fakes["runner"].calls[-1]
+    assert plan_call["execute"] is False and plan_call["requirements"] == "Add retry to client"
+
+    # 4. Refine the plan -> previous plan + notes reach the planner, reply comes back.
+    await service.submit_decision(key, {"action": "refine", "notes": "Keep it minimal"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_plan"
+    assert fakes["runner"].calls[-1]["reviewer_notes"] == "Keep it minimal"
+    assert status["plan_result"]["notes_response"] == "Addressed."
+
+    # 5. Approve phased -> phase 1 only (src/client.py) is coded; review rejects then approves.
+    await service.submit_decision(key, {"action": "approve", "mode": "phased"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_phase"
+    assert status["pending"]["type"] == "phase_gate"
+    coding_calls = [c for c in fakes["runner"].calls if c["execute"]]
+    assert len(coding_calls) == 2, "one rejected attempt plus one retry"
+    assert coding_calls[0]["plan_steps"] == ["src/client.py"]
+    assert coding_calls[1]["review_feedback"].startswith("Missing null check")
+    assert fakes["git"] == ["prepare:web"], "branch prepared once, on the first pass, in the selected repo"
+    assert status["iteration"] == 2 and status["phase_index"] == 0
+
+    # 6. Continue -> phase 2 (tests) coded with a fresh iteration counter, approved first time.
+    fakes["llm"].review_script = [True]
+    fakes["llm"].review_calls = 0
+    await service.submit_decision(key, {"action": "continue"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_final"
+    assert status["pending"]["type"] == "final_review"
+    assert status["pending"]["pr_enabled"] is True
+    assert fakes["runner"].calls[-1]["plan_steps"] == ["tests/test_client.py"]
+    assert status["phase_index"] == 1 and status["iteration"] == 1
+    assert status["diffs"]["web"].startswith("diff --git")
+
+    # 7. Create the PR with a human-supplied title.
+    await service.submit_decision(key, {"action": "create_pr", "pr_title": "TEST: retry transient errors"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "done"
+    assert status["pr_urls"] == {"web": "https://bitbucket.invalid/web-repo/pr/7"}
+    assert [(p["title"], p["source"], p["dest"], p["slug"]) for p in fakes["prs"]] == [
+        ("TEST: retry transient errors", "feature/TEST-1-retry", "develop", "web-repo")
+    ]
+    assert "push:web:feature/TEST-1-retry" in fakes["git"]
+    assert any(c.startswith("commit:web:") for c in fakes["git"])
+    assert "Part of a multi-repository change" not in fakes["prs"][0]["description"], "single repo: no sibling note"
+
+    runs = await service.list_runs()
+    assert any(r["issue_key"] == key and r["status"] == "done" for r in runs)
+
+
+async def test_revise_requirements_and_cancel(service, fakes):
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+
+    await service.submit_decision(key, {"action": "revise", "notes": "Mention the timeout"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_requirements"
+    assert fakes["llm"].framing_calls == 2
+    assert "Mention the timeout" in fakes["llm"].last_prompts["framing"]
+
+    await service.submit_decision(key, {"action": "cancel"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "cancelled"
+
+
+async def test_plan_reject_cancels(service, fakes):
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_plan"
+    await service.submit_decision(key, {"action": "reject"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "cancelled"
+
+
+async def test_all_at_once_mode_and_finish_without_pr(service, fakes):
+    key = _key()
+    fakes["llm"].review_script = [True]
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve", "mode": "all"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_final"
+    assert fakes["runner"].calls[-1]["plan_steps"] == ["src/client.py", "tests/test_client.py"]
+
+    await service.submit_decision(key, {"action": "finish"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "done" and status["pr_urls"] == {}
+    assert fakes["prs"] == []
+
+
+async def test_review_exhaustion_fails(service, fakes):
+    key = _key()
+    fakes["llm"].review_script = [False, False, False]
+    fakes["runner"].phases = False
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "failed"
+    assert len([c for c in fakes["runner"].calls if c["execute"]]) == 2
+
+
+async def test_wrong_decision_for_gate_is_rejected(service, fakes):
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+    with pytest.raises(ValueError):
+        await service.submit_decision(key, {"action": "create_pr", "pr_title": "x"})
+    with pytest.raises(ValueError):
+        await service.submit_decision(key, {"action": "revise"})  # notes required
+
+
+async def test_duplicate_start_does_not_restart_paused_run(service, fakes):
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+    assert fakes["llm"].framing_calls == 1
+    await service.start_run(key)
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_requirements"
+    assert fakes["llm"].framing_calls == 1
+
+
+async def test_multi_repo_run_plans_across_repos_and_opens_one_pr_each(service, fakes):
+    """Selecting two repos attaches both to the agents and delivers a PR per repo."""
+    key = _key()
+    fakes["llm"].review_script = [True]
+    await service.start_run(key, repos=["api", "web"])
+
+    status = await wait_paused(service, key)
+    assert status["repos"] == ["web", "api"], "repos.json order decides the primary, not click order"
+
+    await service.submit_decision(key, {"action": "approve"})
+    await wait_paused(service, key)
+
+    # Both the planner and the coder get every selected repo as a root, primary first.
+    plan_call = next(c for c in fakes["runner"].calls if not c["execute"])
+    assert plan_call["repo_roots"] == ["web", "api"]
+    assert plan_call["repo_cwd"].endswith("web")
+
+    # Plan steps say which repo they belong to, and the gate shows repo-qualified paths.
+    plan_steps = (await service.get_status(key))["plan_result"]["plan_steps"]
+    assert [(s["repo"], s["file"]) for s in plan_steps] == [
+        ("web", "src/client.py"),
+        ("api", "tests/test_client.py"),
+    ]
+
+    await service.submit_decision(key, {"action": "approve", "mode": "all"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_final"
+    assert status["pending"]["files_changed"] == ["web/src/client.py", "api/tests/test_client.py"]
+    assert sorted(status["diffs"]) == ["api", "web"], "one working-tree diff per repo"
+    assert "a/api/src/client.py" in status["diffs"]["api"]
+    assert fakes["git"].count("prepare:web") == 1 and fakes["git"].count("prepare:api") == 1
+
+    # The reviewer sees both diffs, labelled, so cross-repo references resolve.
+    review_prompt = fakes["llm"].last_prompts["review"]
+    assert "Diff in repo 'web'" in review_prompt and "Diff in repo 'api'" in review_prompt
+
+    await service.submit_decision(key, {"action": "create_pr", "pr_title": "TEST: retry transient errors"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "done"
+    assert status["pr_urls"] == {
+        "web": "https://bitbucket.invalid/web-repo/pr/7",
+        "api": "https://bitbucket.invalid/api-repo/pr/7",
+    }
+    # Each repo's PR targets its own configured branch.
+    assert [(p["slug"], p["dest"]) for p in fakes["prs"]] == [("web-repo", "develop"), ("api-repo", "main")]
+    assert all("Part of a multi-repository change" in p["description"] for p in fakes["prs"])
+    assert "push:api:feature/TEST-1-retry" in fakes["git"]
+
+
+async def test_unknown_repo_is_rejected(service):
+    with pytest.raises(ValueError, match="Unknown repo"):
+        await service.start_run(_key(), repos=["nope"])

@@ -1,0 +1,47 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	fetch_issue(fetch_issue)
+	requirements_agent(requirements_agent)
+	await_requirements(await_requirements)
+	scope_check(scope_check)
+	planning_agent(planning_agent)
+	await_plan(await_plan)
+	coding_agent(coding_agent)
+	review_agent(review_agent)
+	phase_gate(phase_gate)
+	await_final(await_final)
+	pr_node(pr_node)
+	cancelled_node(cancelled_node)
+	failed_node(failed_node)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> fetch_issue;
+	await_final -.-> __end__;
+	await_final -.-> pr_node;
+	await_plan -.-> cancelled_node;
+	await_plan -.-> coding_agent;
+	await_plan -.-> planning_agent;
+	await_requirements -.-> cancelled_node;
+	await_requirements -.-> requirements_agent;
+	await_requirements -.-> scope_check;
+	coding_agent --> review_agent;
+	fetch_issue --> requirements_agent;
+	phase_gate -.-> await_final;
+	phase_gate -.-> coding_agent;
+	planning_agent --> await_plan;
+	requirements_agent --> await_requirements;
+	review_agent -.-> coding_agent;
+	review_agent -.-> failed_node;
+	review_agent -.-> phase_gate;
+	scope_check -.-> await_requirements;
+	scope_check -.-> planning_agent;
+	cancelled_node --> __end__;
+	failed_node --> __end__;
+	pr_node --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

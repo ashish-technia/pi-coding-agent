@@ -1,5 +1,20 @@
+# secrets / local env
 .env
-node_modules
+# Local repository list: machine-specific paths. Start from repos.example.json.
+repos.json
+myenv/
+
+# python
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# runtime data (checkpoints, registry)
+data/
+
+# node
+node_modules
+frontend/node_modules/
+
+# built UI (run `npm run build` in frontend/)
+src/pi_jira_agent/static/dist/
