@@ -1,0 +1,28 @@
+# Install once per clone: pre-commit install   (sets up both hook types below)
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # Blocks commits that contain secrets. Runs in Docker, so nothing to install locally.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks-docker
+
+  - repo: local
+    hooks:
+      # GitHub does not enforce branch protection here, so this is the guard on main:
+      # work lands through a pull request from a feature branch.
+      - id: no-push-to-main
+        name: block direct pushes to main
+        language: system
+        entry: bash -c 'if [ "${PRE_COMMIT_REMOTE_BRANCH:-}" = "refs/heads/main" ]; then echo "Pushing to main is blocked. Push a feature branch and open a pull request."; exit 1; fi'
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true

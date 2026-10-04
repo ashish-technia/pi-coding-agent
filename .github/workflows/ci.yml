@@ -1,0 +1,106 @@
+# Every job calls scripts/check.sh, so a green run means the same thing locally.
+# Runs on every push to every branch; a pull request shows the checks of its head commit.
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (lint, types, tests on SQLite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.23"
+          enable-cache: true
+      - run: uv sync --frozen --extra dev --python 3.12
+      - run: scripts/check.sh lint
+      - run: scripts/check.sh types
+      - run: scripts/check.sh test
+
+  postgres:
+    name: Tests on Postgres 16
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pijira
+          POSTGRES_PASSWORD: pijira
+          POSTGRES_DB: pijira
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pijira"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.23"
+          enable-cache: true
+      - run: uv sync --frozen --extra dev --python 3.12
+      - run: scripts/check.sh test-pg
+        env:
+          PI_TEST_DATABASE_URL: postgresql://pijira:pijira@localhost:5432/pijira
+
+  frontend:
+    name: Frontend (lint, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: scripts/check.sh frontend
+
+  docs:
+    name: Docs (build, link check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: scripts/check.sh docs
+
+  secrets:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Docker image (build only)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
