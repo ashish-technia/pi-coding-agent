@@ -1,0 +1,30 @@
+# Weekly, grouped: one pull request per ecosystem for minor and patch updates;
+# major updates arrive one by one. Every pull request must pass CI before merging.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories: [/, /frontend, /docs]
+    schedule:
+      interval: weekly
+    ignore:
+      # The Pi 1.0 upgrade is planned work (R-13, Phase 2), not a routine bump.
+      - dependency-name: "@mariozechner/pi-coding-agent"
+    groups:
+      npm-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

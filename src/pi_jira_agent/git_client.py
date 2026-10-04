@@ -50,18 +50,14 @@ class GitBranchClient:
         )
         parts = completed.stdout.strip().split()
         if len(parts) != 2:
-            raise RuntimeError(
-                f"Unexpected rev-list output for {source_branch} vs {target_branch}: {completed.stdout}"
-            )
+            raise RuntimeError(f"Unexpected rev-list output for {source_branch} vs {target_branch}: {completed.stdout}")
         return int(parts[1])
 
     def _run(self, *args: str) -> None:
         completed = self._run_capture(*args)
         if completed.returncode != 0:
             raise RuntimeError(
-                f"Command failed: {' '.join(args)}\n"
-                f"stdout: {completed.stdout}\n"
-                f"stderr: {completed.stderr}"
+                f"Command failed: {' '.join(args)}\nstdout: {completed.stdout}\nstderr: {completed.stderr}"
             )
 
     def _run_capture(self, *args: str) -> subprocess.CompletedProcess[str]:

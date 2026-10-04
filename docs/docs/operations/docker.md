@@ -181,7 +181,7 @@ docker run --rm -p 8000:8000 pi-jira-agent:latest demo
 
 ## Image design
 
-Two stages. The first builds the SPA with Node and emits `static/dist`. The second is `python:3.12-slim` with Node 22 added from NodeSource, the Pi SDK installed from `package-lock.json`, and the project installed editable so that the runner-path lookup (`Path(__file__).parents[2]`) resolves to `/app` and finds `node/pi-sdk-runner.mjs`.
+Two stages. The first builds the SPA with Node and emits `static/dist`. The second is `python:3.12-slim` with Node 22 added from NodeSource, the Pi SDK installed from `package-lock.json`, and the Python dependencies installed with `uv sync` from `uv.lock` (the versions CI tested), with the project editable so that the runner-path lookup (`Path(__file__).parents[2]`) resolves to `/app` and finds `node/pi-sdk-runner.mjs`.
 
 - **Non-root**: runs as `app` (uid 1000), which matches the first user on most Linux hosts so a bind-mounted repository stays writable. On a host with a different uid, uncomment `user:` in compose.
 - **tini as PID 1**: reaps the Pi child process and passes SIGTERM to uvicorn.

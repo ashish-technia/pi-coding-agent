@@ -52,7 +52,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+# check_dir=False: a fresh clone has no static/ until the UI is built (its dist/ is git-ignored),
+# and the API must still start; "/" reports the missing build instead.
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR), check_dir=False), name="static")
 
 
 @app.get("/assets/{file_path:path}", include_in_schema=False)

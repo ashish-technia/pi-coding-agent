@@ -55,16 +55,21 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
-# Python dependencies. Installed editable so that PiAgentExecutor's project-root
+# Python dependencies, installed from uv.lock so the image runs exactly the versions
+# CI tested. uv installs the project editable, so PiAgentExecutor's project-root
 # lookup (Path(__file__).parents[2]) resolves to /app and finds node/pi-sdk-runner.mjs.
 # The dev extra (pytest) lets the suite run inside the exact runtime image; set
 # INSTALL_DEV=false for a slimmer production build.
+COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /usr/local/bin/uv
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:$PATH"
 ARG INSTALL_DEV=true
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ "$INSTALL_DEV" = "true" ]; then pip install --no-cache-dir -e ".[dev]"; \
-    else pip install --no-cache-dir -e .; fi
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$INSTALL_DEV" = "true" ]; then uv sync --frozen --extra dev; \
+    else uv sync --frozen; fi
 
 # Application files the runtime reads at request time.
 COPY node/ ./node/

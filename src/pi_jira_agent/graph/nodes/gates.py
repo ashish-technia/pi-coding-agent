@@ -122,6 +122,7 @@ def make_await_final(*, pr_enabled: bool):
         code_result = state.get("code_result")
         plan = state.get("plan_result")
         diffs = state.get("diffs") or {}
+        suggestion = code_result or plan
         decision = interrupt(
             {
                 "type": "final_review",
@@ -131,8 +132,8 @@ def make_await_final(*, pr_enabled: bool):
                 "files_changed": code_result.files_changed if code_result else [],
                 "review_feedback": state.get("review_feedback", ""),
                 "pr_enabled": pr_enabled,
-                "suggested_pr_title": (code_result or plan).pr_title if (code_result or plan) else "",
-                "suggested_pr_description": (code_result or plan).pr_description if (code_result or plan) else "",
+                "suggested_pr_title": suggestion.pr_title if suggestion else "",
+                "suggested_pr_description": suggestion.pr_description if suggestion else "",
                 "phases_completed": (
                     len(state.get("phase_diffs") or [])
                     if state.get("execution_mode") == "phased"

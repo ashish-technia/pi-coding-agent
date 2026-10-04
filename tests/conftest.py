@@ -62,6 +62,8 @@ os.environ.update(
         # Opt in to the Postgres checkpointer/registry with PI_TEST_DATABASE_URL.
         "DATABASE_URL": os.environ.get("PI_TEST_DATABASE_URL", ""),
         "REDIS_URL": "",
+        # The Docker image sets REPOS_ROOT; tests that need it patch settings directly.
+        "REPOS_ROOT": "",
         "REVIEW_RULES_PATH": str(_TMP / "no-rules.md"),
     }
 )
@@ -156,8 +158,20 @@ class FakeRunner:
         self.calls: list[dict] = []
         self.phases = True
 
-    async def __call__(self, executor, issue, *, repo_cwd, execute_changes, branch_name=None, plan=None,
-                       requirements=None, reviewer_notes="", review_feedback="", repo_roots=None):
+    async def __call__(
+        self,
+        executor,
+        issue,
+        *,
+        repo_cwd,
+        execute_changes,
+        branch_name=None,
+        plan=None,
+        requirements=None,
+        reviewer_notes="",
+        review_feedback="",
+        repo_roots=None,
+    ):
         self.calls.append(
             {
                 "execute": execute_changes,
@@ -218,6 +232,7 @@ def install_fakes(monkeypatch) -> dict:
 
     monkeypatch.setattr(build_mod, "make_requirements_llm", lambda: llm)
     monkeypatch.setattr(build_mod, "make_review_llm", lambda: llm)
+
     async def _run_with_mode(self, issue, **kwargs):
         return await runner(self, issue, **kwargs)
 
@@ -243,11 +258,15 @@ def install_fakes(monkeypatch) -> dict:
     # Git calls are tagged with the repo directory name, so multi-repo tests can tell which
     # clone each commit/push belongs to.
     monkeypatch.setattr(
-        git_client.GitBranchClient, "prepare_branch", lambda self, **kw: git_calls.append(f"prepare:{self.repo_path.name}")
+        git_client.GitBranchClient,
+        "prepare_branch",
+        lambda self, **kw: git_calls.append(f"prepare:{self.repo_path.name}"),
     )
     monkeypatch.setattr(git_client.GitBranchClient, "has_changes", lambda self: True)
     monkeypatch.setattr(
-        git_client.GitBranchClient, "commit_all", lambda self, msg: git_calls.append(f"commit:{self.repo_path.name}:{msg}")
+        git_client.GitBranchClient,
+        "commit_all",
+        lambda self, msg: git_calls.append(f"commit:{self.repo_path.name}:{msg}"),
     )
     monkeypatch.setattr(
         git_client.GitBranchClient, "push_branch", lambda self, b: git_calls.append(f"push:{self.repo_path.name}:{b}")

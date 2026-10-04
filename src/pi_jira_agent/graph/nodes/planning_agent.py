@@ -1,15 +1,14 @@
 import logging
-from collections.abc import Awaitable, Callable
 
 from ...models import AgentResult, JiraIssue
 from ...pi_agent import PiAgentExecutor
 from .. import progress
 from ..repo_context import RepoMap, describe, repo_roots_payload, selected_repos
-from ..state import GraphState
+from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
 
-PlanningNode = Callable[[GraphState], Awaitable[dict]]
+PlanningNode = AsyncNode
 
 
 def make_planning_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap) -> PlanningNode:
@@ -40,9 +39,7 @@ def make_planning_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap) -> Plannin
             reviewer_notes=notes,
         )
         phases_total = len(plan_result.phases) if plan_result.phases else 1
-        logger.info(
-            "Plan for %s: %d step(s), %d phase(s)", issue.key, len(plan_result.plan_steps), phases_total
-        )
+        logger.info("Plan for %s: %d step(s), %d phase(s)", issue.key, len(plan_result.plan_steps), phases_total)
         return {
             "plan_result": plan_result,
             "phases_total": phases_total,

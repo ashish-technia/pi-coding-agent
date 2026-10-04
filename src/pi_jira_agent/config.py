@@ -56,9 +56,7 @@ class Settings(BaseSettings):
     pi_api_key: str = Field(default="", description="Default API key for the Pi provider.")
     pi_provider: str = Field(default="openai", description="Default Pi provider (openai, anthropic, google, ...).")
     pi_model: str = Field(default="gpt-5.4-medium", description="Default Pi model id.")
-    pi_system_prompt: str = (
-        "You are an engineering automation agent. Prepare branch updates and PR content."
-    )
+    pi_system_prompt: str = "You are an engineering automation agent. Prepare branch updates and PR content."
     pi_node_command: str = Field(default="node", description="Node.js executable command.")
     pi_runner_script: str = Field(
         default="node/pi-sdk-runner.mjs",
@@ -337,7 +335,9 @@ class Settings(BaseSettings):
             # path, and only the primary one is ever the process cwd.
             if repo.path.strip():
                 repo.path = str(Path(repo.path).expanduser().resolve())
-            repo.clone_url = repo.clone_url.strip() or self.default_clone_url(repo.bitbucket_repo_slug or self.bitbucket_repo_slug)
+            repo.clone_url = repo.clone_url.strip() or self.default_clone_url(
+                repo.bitbucket_repo_slug or self.bitbucket_repo_slug
+            )
             repo.bitbucket_repo_slug = repo.bitbucket_repo_slug or self.bitbucket_repo_slug
             repo.target_branch = repo.target_branch or self.bitbucket_target_branch
             repos.append(repo)
@@ -361,7 +361,10 @@ class Settings(BaseSettings):
 
     def public_view(self) -> dict:
         """Non-secret configuration for the settings screen."""
-        stages = {s: self.stage_model(s).model_dump(exclude={"api_key"}) for s in ("requirements", "planning", "coding", "review")}
+        stages = {
+            s: self.stage_model(s).model_dump(exclude={"api_key"})
+            for s in ("requirements", "planning", "coding", "review")
+        }
         return {
             "app_name": self.app_name,
             "stages": stages,
@@ -400,4 +403,4 @@ class Settings(BaseSettings):
         }
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]  # required values come from the environment

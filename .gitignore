@@ -3,6 +3,10 @@
 # Local repository list: machine-specific paths. Start from repos.example.json.
 repos.json
 myenv/
+.venv/
+
+# Claude Code: personal permissions stay local; launch.json is shared
+.claude/settings.local.json
 
 # python
 __pycache__/

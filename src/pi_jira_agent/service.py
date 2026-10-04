@@ -3,6 +3,8 @@ import logging
 import time
 from collections.abc import Coroutine
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from .channels.jira_comments import JiraCommentChannel
@@ -34,14 +36,12 @@ class AutomationService:
     def __init__(self):
         self._graph_builder = build_graph()
         self._checkpointer_cm = None
-        self.graph = None
+        self.graph: CompiledStateGraph | None = None
         self._tasks: dict[str, asyncio.Task] = {}
         self.registry = make_registry(settings.database_url, settings.graph_checkpoint_db)
         self.jira_channel: JiraCommentChannel | None = None
         if settings.jira_comment_channel_enabled:
-            self.jira_channel = JiraCommentChannel(
-                make_jira_client(), agent_account_id=settings.jira_agent_account_id
-            )
+            self.jira_channel = JiraCommentChannel(make_jira_client(), agent_account_id=settings.jira_agent_account_id)
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -65,8 +65,14 @@ class AutomationService:
         if self._checkpointer_cm:
             await self._checkpointer_cm.__aexit__(None, None, None)
 
+    @property
+    def _compiled(self) -> CompiledStateGraph:
+        if self.graph is None:
+            raise RuntimeError("AutomationService is not started; call start() first.")
+        return self.graph
+
     @staticmethod
-    def _config(issue_key: str) -> dict:
+    def _config(issue_key: str) -> RunnableConfig:
         return {"configurable": {"thread_id": issue_key}}
 
     def _run_background(self, issue_key: str, coro: Coroutine) -> None:
@@ -96,7 +102,8 @@ class AutomationService:
                 await self.jira_channel.notify_pending(issue_key, pending)
             elif status.get("status") == "stuck_error" and self.jira_channel and status.get("channel") == "jira":
                 await self.jira_channel.notify_text(
-                    issue_key, f"The run hit an error and is paused: {status.get('error')}\nAn operator can retry it from the UI."
+                    issue_key,
+                    f"The run hit an error and is paused: {status.get('error')}\nAn operator can retry it from the UI.",
                 )
         except Exception:  # noqa: BLE001
             logger.exception("Post-run bookkeeping failed for %s", issue_key)
@@ -121,7 +128,7 @@ class AutomationService:
         if issue_key in self._tasks:
             return await self.get_status(issue_key)
 
-        existing = await self.graph.aget_state(config)
+        existing = await self._compiled.aget_state(config)
         if existing and existing.next:
             next_nodes = set(existing.next)
             if next_nodes <= _GATE_NODES:
@@ -129,7 +136,7 @@ class AutomationService:
                 return await self.get_status(issue_key)
             if not self._first_task_error(existing):
                 logger.info("Auto-resuming %s after restart (next=%s)", issue_key, next_nodes)
-                self._run_background(issue_key, self.graph.ainvoke(None, config=config))
+                self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
             return await self.get_status(issue_key)
 
         selected = settings.selected_repos(repos)
@@ -160,7 +167,7 @@ class AutomationService:
         await self.registry.upsert(
             issue_key, summary=inline_issue.summary if inline_issue else None, status="fetching", channel=channel
         )
-        self._run_background(issue_key, self.graph.ainvoke(initial_state, config=config))
+        self._run_background(issue_key, self._compiled.ainvoke(initial_state, config=config))
         return await self.get_status(issue_key)
 
     # Backwards-compatible name used by the legacy webhook path.
@@ -169,7 +176,7 @@ class AutomationService:
 
     async def get_pending(self, issue_key: str) -> dict | None:
         config = self._config(issue_key)
-        state = await self.graph.aget_state(config)
+        state = await self._compiled.aget_state(config)
         if not state or not state.tasks:
             return None
         for task in state.tasks:
@@ -191,7 +198,7 @@ class AutomationService:
             raise ValueError("Pull request creation is disabled (PR_CREATION_ENABLED=false).")
         resume = decision.model_dump(mode="json")
         logger.info("Decision for %s at %s: %s", issue_key, pending_type, resume.get("action"))
-        self._run_background(issue_key, self.graph.ainvoke(Command(resume=resume), config=self._config(issue_key)))
+        self._run_background(issue_key, self._compiled.ainvoke(Command(resume=resume), config=self._config(issue_key)))
         return await self.get_status(issue_key)
 
     async def submit_comment(self, issue_key: str, body: str, author_account_id: str = "") -> dict:
@@ -214,7 +221,7 @@ class AutomationService:
     async def retry(self, issue_key: str) -> dict:
         """Resume a run stuck on a node that previously raised an exception."""
         config = self._config(issue_key)
-        state = await self.graph.aget_state(config)
+        state = await self._compiled.aget_state(config)
         if not state:
             raise RuntimeError(f"No run found for {issue_key}")
 
@@ -225,8 +232,8 @@ class AutomationService:
         if error and "review_agent" in stuck_nodes:
             existing_feedback = state.values.get("review_feedback", "")
             updates["review_feedback"] = f"{existing_feedback}\n[Previous attempt errored: {error[:300]}]".strip()
-        await self.graph.aupdate_state(config, updates)
-        self._run_background(issue_key, self.graph.ainvoke(None, config=config))
+        await self._compiled.aupdate_state(config, updates)
+        self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
         return await self.get_status(issue_key)
 
     async def list_runs(self, limit: int = 50) -> list[dict]:
@@ -242,7 +249,7 @@ class AutomationService:
         is_running = issue_key in self._tasks
         live_progress = progress.get(issue_key)
 
-        state = await self.graph.aget_state(config)
+        state = await self._compiled.aget_state(config)
         if not state or not state.values:
             return {
                 "issue": issue_key,

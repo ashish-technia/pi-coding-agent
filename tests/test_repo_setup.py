@@ -83,9 +83,7 @@ def test_ensure_repo_falls_back_when_the_branch_is_missing(tmp_path):
 
 
 def test_ensure_repo_reports_a_bad_url_without_raising(tmp_path):
-    repo = RepoConfig(
-        name="ghost", path=str(tmp_path / "ghost"), clone_url=str(tmp_path / "does-not-exist.git")
-    )
+    repo = RepoConfig(name="ghost", path=str(tmp_path / "ghost"), clone_url=str(tmp_path / "does-not-exist.git"))
     outcome, detail = repo_setup.ensure_repo(repo)
     assert outcome == "failed" and "git clone" in detail
 

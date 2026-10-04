@@ -13,7 +13,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +74,16 @@ class RedisJobQueue:
     def __init__(self, redis_url: str, handler: JobHandler):
         self.redis_url = redis_url
         self.handler = handler
-        self._redis = None
+        self._redis: Any = None  # redis.asyncio.Redis once started
         self._worker_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._last_size = 0
+
+    @property
+    def _client(self) -> Any:
+        if self._redis is None:
+            raise RuntimeError("Redis job queue is not started; call start() first.")
+        return self._redis
 
     async def start(self) -> None:
         import redis.asyncio as aioredis
@@ -97,7 +103,7 @@ class RedisJobQueue:
         logger.info("Redis job queue stopped.")
 
     async def enqueue(self, job: dict) -> None:
-        self._last_size = await self._redis.lpush(self.LIST_KEY, json.dumps(job))
+        self._last_size = await self._client.lpush(self.LIST_KEY, json.dumps(job))
         logger.info("Job enqueued to Redis. current_size=%s", self._last_size)
 
     def size(self) -> int:
@@ -105,7 +111,7 @@ class RedisJobQueue:
 
     async def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
-            item = await self._redis.brpop(self.LIST_KEY, timeout=1)
+            item = await self._client.brpop(self.LIST_KEY, timeout=1)
             if not item:
                 continue
             _, raw = item

@@ -19,7 +19,11 @@ def test_parse_decision_validates_per_gate():
     "pending, body, expected",
     [
         ("requirements_approval", "/approve", {"action": "approve"}),
-        ("requirements_approval", "/revise please mention timeouts", {"action": "revise", "notes": "please mention timeouts"}),
+        (
+            "requirements_approval",
+            "/revise please mention timeouts",
+            {"action": "revise", "notes": "please mention timeouts"},
+        ),
         ("requirements_approval", "/cancel", {"action": "cancel"}),
         ("plan_approval", "/approve phased", {"action": "approve", "mode": "phased"}),
         ("plan_approval", "/Approve", {"action": "approve", "mode": "all"}),
@@ -27,7 +31,11 @@ def test_parse_decision_validates_per_gate():
         ("plan_approval", "/reject", {"action": "reject"}),
         ("phase_gate", "/continue", {"action": "continue"}),
         ("phase_gate", "/stop", {"action": "stop"}),
-        ("final_review", "/pr WAAS-1: retry transient errors", {"action": "create_pr", "pr_title": "WAAS-1: retry transient errors"}),
+        (
+            "final_review",
+            "/pr WAAS-1: retry transient errors",
+            {"action": "create_pr", "pr_title": "WAAS-1: retry transient errors"},
+        ),
         ("final_review", "/finish", {"action": "finish"}),
         ("final_review", "looks great, thanks!", None),
         ("plan_approval", "/pr not valid here", None),

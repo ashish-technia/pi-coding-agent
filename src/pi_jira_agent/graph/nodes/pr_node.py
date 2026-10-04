@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Awaitable, Callable
 
 from ...bitbucket_client import BitbucketClient
 from ...git_client import GitBranchClient
@@ -7,11 +6,11 @@ from ...jira_client import JiraClient
 from ...models import AgentResult, JiraIssue, RepoConfig
 from .. import progress
 from ..repo_context import RepoMap, selected_repos
-from ..state import GraphState
+from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
 
-PrNode = Callable[[GraphState], Awaitable[dict]]
+PrNode = AsyncNode
 
 
 def _description(code_result: AgentResult, repos: list[RepoConfig], issue_key: str) -> str:

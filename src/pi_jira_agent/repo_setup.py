@@ -26,9 +26,7 @@ _CLONE_TIMEOUT_SECONDS = 900
 
 
 def _run(args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args, cwd=cwd, capture_output=True, text=True, timeout=_CLONE_TIMEOUT_SECONDS
-    )
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=_CLONE_TIMEOUT_SECONDS)
 
 
 def is_git_repo(path: Path) -> bool:
@@ -113,9 +111,7 @@ def main() -> int:
 
         branch, dirty = describe(Path(repo.path))
         verb = "cloned" if outcome == "cloned" else "ready"
-        logger.info(
-            "%s: %s at %s (branch: %s, uncommitted: %d)", repo.name, verb, repo.path, branch, dirty
-        )
+        logger.info("%s: %s at %s (branch: %s, uncommitted: %d)", repo.name, verb, repo.path, branch, dirty)
         if dirty > 200:
             # Same trap the single-repo entrypoint check warns about.
             logger.warning(

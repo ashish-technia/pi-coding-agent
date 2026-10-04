@@ -95,9 +95,7 @@ def build_graph():
     repos = settings.repos()
     repo_map = {r.name: r for r in repos}
     git_clients = {
-        r.name: GitBranchClient(repo_path=r.path, remote_name=settings.git_remote_name)
-        for r in repos
-        if r.path.strip()
+        r.name: GitBranchClient(repo_path=r.path, remote_name=settings.git_remote_name) for r in repos if r.path.strip()
     }
     bitbucket_clients = {
         r.name: BitbucketClient(

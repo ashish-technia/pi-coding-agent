@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    import aiosqlite
+    from psycopg_pool import AsyncConnectionPool
 
 _CREATE_SQLITE = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -34,13 +38,15 @@ CREATE TABLE IF NOT EXISTS runs (
 
 
 def _now() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
 
 
 class RunRegistry(Protocol):
     async def setup(self) -> None: ...
     async def close(self) -> None: ...
-    async def upsert(self, issue_key: str, *, summary: str | None = None, status: str | None = None, channel: str | None = None) -> None: ...
+    async def upsert(
+        self, issue_key: str, *, summary: str | None = None, status: str | None = None, channel: str | None = None
+    ) -> None: ...
     async def list(self, limit: int = 50) -> list[dict]: ...
     async def get(self, issue_key: str) -> dict | None: ...
 
@@ -48,7 +54,13 @@ class RunRegistry(Protocol):
 class SqliteRunRegistry:
     def __init__(self, path: str):
         self.path = path
-        self._conn = None
+        self._conn: aiosqlite.Connection | None = None
+
+    @property
+    def _db(self) -> aiosqlite.Connection:
+        if self._conn is None:
+            raise RuntimeError("Run registry is not set up; call setup() first.")
+        return self._conn
 
     async def setup(self) -> None:
         import aiosqlite
@@ -65,7 +77,7 @@ class SqliteRunRegistry:
 
     async def upsert(self, issue_key, *, summary=None, status=None, channel=None) -> None:
         now = _now().isoformat()
-        await self._conn.execute(
+        await self._db.execute(
             """
             INSERT INTO runs (issue_key, summary, status, channel, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -77,10 +89,10 @@ class SqliteRunRegistry:
             """,
             (issue_key, summary or "", status or "", channel or "ui", now, now, status, channel),
         )
-        await self._conn.commit()
+        await self._db.commit()
 
     async def list(self, limit: int = 50) -> list[dict]:
-        cur = await self._conn.execute(
+        cur = await self._db.execute(
             "SELECT issue_key, summary, status, channel, created_at, updated_at FROM runs ORDER BY updated_at DESC LIMIT ?",
             (limit,),
         )
@@ -88,7 +100,7 @@ class SqliteRunRegistry:
         return [dict(r) for r in rows]
 
     async def get(self, issue_key: str) -> dict | None:
-        cur = await self._conn.execute(
+        cur = await self._db.execute(
             "SELECT issue_key, summary, status, channel, created_at, updated_at FROM runs WHERE issue_key = ?",
             (issue_key,),
         )
@@ -99,7 +111,13 @@ class SqliteRunRegistry:
 class PostgresRunRegistry:
     def __init__(self, dsn: str):
         self.dsn = dsn
-        self._pool = None
+        self._pool: AsyncConnectionPool | None = None
+
+    @property
+    def _db(self) -> AsyncConnectionPool:
+        if self._pool is None:
+            raise RuntimeError("Run registry is not set up; call setup() first.")
+        return self._pool
 
     async def setup(self) -> None:
         from psycopg_pool import AsyncConnectionPool
@@ -115,7 +133,7 @@ class PostgresRunRegistry:
 
     async def upsert(self, issue_key, *, summary=None, status=None, channel=None) -> None:
         now = _now()
-        async with self._pool.connection() as conn:
+        async with self._db.connection() as conn:
             await conn.execute(
                 """
                 INSERT INTO runs (issue_key, summary, status, channel, created_at, updated_at)
@@ -130,17 +148,20 @@ class PostgresRunRegistry:
             )
 
     async def list(self, limit: int = 50) -> list[dict]:
-        async with self._pool.connection() as conn:
+        async with self._db.connection() as conn:
             cur = await conn.execute(
                 "SELECT issue_key, summary, status, channel, created_at, updated_at FROM runs ORDER BY updated_at DESC LIMIT %s",
                 (limit,),
             )
             rows = await cur.fetchall()
         cols = ["issue_key", "summary", "status", "channel", "created_at", "updated_at"]
-        return [{c: (v.isoformat() if isinstance(v, dt.datetime) else v) for c, v in zip(cols, r)} for r in rows]
+        return [
+            {c: (v.isoformat() if isinstance(v, dt.datetime) else v) for c, v in zip(cols, r, strict=True)}
+            for r in rows
+        ]
 
     async def get(self, issue_key: str) -> dict | None:
-        async with self._pool.connection() as conn:
+        async with self._db.connection() as conn:
             cur = await conn.execute(
                 "SELECT issue_key, summary, status, channel, created_at, updated_at FROM runs WHERE issue_key = %s",
                 (issue_key,),
@@ -149,7 +170,7 @@ class PostgresRunRegistry:
         if not row:
             return None
         cols = ["issue_key", "summary", "status", "channel", "created_at", "updated_at"]
-        return {c: (v.isoformat() if isinstance(v, dt.datetime) else v) for c, v in zip(cols, row)}
+        return {c: (v.isoformat() if isinstance(v, dt.datetime) else v) for c, v in zip(cols, row, strict=True)}
 
 
 def make_registry(database_url: str, sqlite_path: str) -> RunRegistry:

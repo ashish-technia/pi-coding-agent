@@ -61,14 +61,24 @@ def make_requirements_agent(llm):
         logger.info("Framing requirements for %s%s", issue.key, " (revision)" if notes else "")
         progress.add_event(
             issue.key,
-            {"source": "llm", "ev": "llm_call", "stage": "requirements", "text": "revising with reviewer notes" if notes else "framing from issue + comments"},
+            {
+                "source": "llm",
+                "ev": "llm_call",
+                "stage": "requirements",
+                "text": "revising with reviewer notes" if notes else "framing from issue + comments",
+            },
         )
         spec: RequirementsSpec = await structured.ainvoke(
             [SystemMessage(content=_FRAMING_SYSTEM), HumanMessage(content="\n".join(parts))]
         )
         progress.add_event(
             issue.key,
-            {"source": "llm", "ev": "llm_done", "stage": "requirements", "text": f"{len(spec.goals)} goal(s), {len(spec.acceptance_criteria)} acceptance criteria"},
+            {
+                "source": "llm",
+                "ev": "llm_done",
+                "stage": "requirements",
+                "text": f"{len(spec.goals)} goal(s), {len(spec.acceptance_criteria)} acceptance criteria",
+            },
         )
         return {
             "requirements": spec,
@@ -108,13 +118,21 @@ def make_scope_check(llm):
             ]
         )
         logger.info("Checking scope of edited requirements for %s", issue.key)
-        progress.add_event(issue.key, {"source": "llm", "ev": "llm_call", "stage": "scope_check", "text": "comparing your edits with the issue"})
+        progress.add_event(
+            issue.key,
+            {"source": "llm", "ev": "llm_call", "stage": "scope_check", "text": "comparing your edits with the issue"},
+        )
         result: ScopeCheck = await structured.ainvoke(
             [SystemMessage(content=_SCOPE_SYSTEM), HumanMessage(content=prompt)]
         )
         progress.add_event(
             issue.key,
-            {"source": "llm", "ev": "llm_done", "stage": "scope_check", "text": f"{len(result.out_of_scope_items)} out-of-scope item(s)"},
+            {
+                "source": "llm",
+                "ev": "llm_done",
+                "stage": "scope_check",
+                "text": f"{len(result.out_of_scope_items)} out-of-scope item(s)",
+            },
         )
         if result.out_of_scope_items:
             logger.info("Scope check for %s flagged %d item(s)", issue.key, len(result.out_of_scope_items))
