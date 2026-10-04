@@ -1,12 +1,12 @@
 {
   "webhookEvent": "jira:issue_updated",
   "issue": {
-    "key": "WAAS-456",
+    "key": "DEMO-123",
     "fields": {
-      "summary": "Form focus for selectize field not working",
-      "description": "Configure a selectize enabled form field, e.g. MaterialCategory.xml in hex to have focus as described here. Open the form.\n\nExpected behavior: Form on load should have selectize field enabled.\nActual behavior: Selectize field is not enabled.\n\nDev Notes:\nProbably need to add focus() method in heliumselect.js and use Selectize api to focus. Consider adjust height widgets.",
+      "summary": "Search box loses focus after the results refresh",
+      "description": "Type a query in the search box on the orders page and wait for the results to refresh.\n\nExpected behaviour: the search box keeps focus so the user can keep typing.\nActual behaviour: focus moves to the page body after each refresh.\n\nDev notes:\nRestore focus to the search input after the results component re-renders.",
       "project": {
-        "key": "WAAS"
+        "key": "DEMO"
       },
       "reporter": {
         "displayName": "Demo User"
