@@ -28,11 +28,8 @@ def make_chat_model(cfg: StageModelConfig):
             from langchain_google_genai import ChatGoogleGenerativeAI  # pyright: ignore[reportMissingImports]
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise ValueError(
-                "Provider 'google' requires the langchain-google-genai package: "
-                "pip install langchain-google-genai"
+                "Provider 'google' requires the langchain-google-genai package: pip install langchain-google-genai"
             ) from exc
 
         return ChatGoogleGenerativeAI(model=cfg.model, **({"google_api_key": cfg.api_key} if cfg.api_key else {}))
-    raise ValueError(
-        f"Unsupported model provider {cfg.provider!r}; expected 'openai', 'anthropic' or 'google'."
-    )
+    raise ValueError(f"Unsupported model provider {cfg.provider!r}; expected 'openai', 'anthropic' or 'google'.")

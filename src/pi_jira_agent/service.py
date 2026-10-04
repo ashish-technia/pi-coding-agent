@@ -41,9 +41,7 @@ class AutomationService:
         self.registry = make_registry(settings.database_url, settings.graph_checkpoint_db)
         self.jira_channel: JiraCommentChannel | None = None
         if settings.jira_comment_channel_enabled:
-            self.jira_channel = JiraCommentChannel(
-                make_jira_client(), agent_account_id=settings.jira_agent_account_id
-            )
+            self.jira_channel = JiraCommentChannel(make_jira_client(), agent_account_id=settings.jira_agent_account_id)
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -104,7 +102,8 @@ class AutomationService:
                 await self.jira_channel.notify_pending(issue_key, pending)
             elif status.get("status") == "stuck_error" and self.jira_channel and status.get("channel") == "jira":
                 await self.jira_channel.notify_text(
-                    issue_key, f"The run hit an error and is paused: {status.get('error')}\nAn operator can retry it from the UI."
+                    issue_key,
+                    f"The run hit an error and is paused: {status.get('error')}\nAn operator can retry it from the UI.",
                 )
         except Exception:  # noqa: BLE001
             logger.exception("Post-run bookkeeping failed for %s", issue_key)

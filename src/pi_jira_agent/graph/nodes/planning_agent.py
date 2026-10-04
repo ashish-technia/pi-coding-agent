@@ -39,9 +39,7 @@ def make_planning_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap) -> Plannin
             reviewer_notes=notes,
         )
         phases_total = len(plan_result.phases) if plan_result.phases else 1
-        logger.info(
-            "Plan for %s: %d step(s), %d phase(s)", issue.key, len(plan_result.plan_steps), phases_total
-        )
+        logger.info("Plan for %s: %d step(s), %d phase(s)", issue.key, len(plan_result.plan_steps), phases_total)
         return {
             "plan_result": plan_result,
             "phases_total": phases_total,

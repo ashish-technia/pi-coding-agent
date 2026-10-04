@@ -33,11 +33,7 @@ def repo_roots_payload(repos: list[RepoConfig]) -> list[dict]:
     Pi resolves absolute paths as given, so listing the roots is all it takes to let
     one agent session read and edit several checkouts.
     """
-    return [
-        {"name": r.name, "path": r.path, "properties": r.properties}
-        for r in repos
-        if r.path.strip()
-    ]
+    return [{"name": r.name, "path": r.path, "properties": r.properties} for r in repos if r.path.strip()]
 
 
 def describe(repos: list[RepoConfig]) -> str:

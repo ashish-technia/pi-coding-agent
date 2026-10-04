@@ -108,16 +108,19 @@ def make_review_agent(llm, *, review_rules: str = "") -> ReviewNode:
         iteration = state.get("iteration", 0)
         previous_feedback = state.get("review_feedback", "")
         plan = state.get("plan_result")
-        current = (
-            phase_plan(plan, state.get("execution_mode", "all"), state.get("phase_index", 0)) if plan else None
-        )
+        current = phase_plan(plan, state.get("execution_mode", "all"), state.get("phase_index", 0)) if plan else None
 
         logger.info("Reviewing issue %s (iteration=%d)", issue.key, iteration)
         diff_lines = sum(text.count("\n") for text in diffs.values())
         scope = f" across {len(diffs)} repos" if len(diffs) > 1 else ""
         progress.add_event(
             issue.key,
-            {"source": "llm", "ev": "llm_call", "stage": "review", "text": f"reviewing {diff_lines}-line diff{scope} (attempt {iteration})"},
+            {
+                "source": "llm",
+                "ev": "llm_call",
+                "stage": "review",
+                "text": f"reviewing {diff_lines}-line diff{scope} (attempt {iteration})",
+            },
         )
         verdict: ReviewVerdict = await structured_llm.ainvoke(
             [
@@ -150,7 +153,9 @@ def make_review_agent(llm, *, review_rules: str = "") -> ReviewNode:
                 "source": "llm",
                 "ev": "llm_done",
                 "stage": "review",
-                "text": ("approved" if verdict.approved and not verdict.must_violations else "rejected") + ": " + verdict.comments[:200],
+                "text": ("approved" if verdict.approved and not verdict.must_violations else "rejected")
+                + ": "
+                + verdict.comments[:200],
             },
         )
 

@@ -44,7 +44,9 @@ def _now() -> dt.datetime:
 class RunRegistry(Protocol):
     async def setup(self) -> None: ...
     async def close(self) -> None: ...
-    async def upsert(self, issue_key: str, *, summary: str | None = None, status: str | None = None, channel: str | None = None) -> None: ...
+    async def upsert(
+        self, issue_key: str, *, summary: str | None = None, status: str | None = None, channel: str | None = None
+    ) -> None: ...
     async def list(self, limit: int = 50) -> list[dict]: ...
     async def get(self, issue_key: str) -> dict | None: ...
 
@@ -153,7 +155,10 @@ class PostgresRunRegistry:
             )
             rows = await cur.fetchall()
         cols = ["issue_key", "summary", "status", "channel", "created_at", "updated_at"]
-        return [{c: (v.isoformat() if isinstance(v, dt.datetime) else v) for c, v in zip(cols, r, strict=True)} for r in rows]
+        return [
+            {c: (v.isoformat() if isinstance(v, dt.datetime) else v) for c, v in zip(cols, r, strict=True)}
+            for r in rows
+        ]
 
     async def get(self, issue_key: str) -> dict | None:
         async with self._db.connection() as conn:

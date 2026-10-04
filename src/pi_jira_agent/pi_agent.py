@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 _EVENT_PREFIX = "@@PI "
 
 
-def _run_streaming(cmd: list[str], *, stdin_text: str, cwd: str, env: dict, timeout: int, on_event) -> tuple[int, str, str]:
+def _run_streaming(
+    cmd: list[str], *, stdin_text: str, cwd: str, env: dict, timeout: int, on_event
+) -> tuple[int, str, str]:
     """Run the Node runner, forwarding ``@@PI`` JSON lines from stderr as they arrive.
 
     Returns (returncode, stdout, other_stderr). Kills the process on timeout.
@@ -44,7 +46,7 @@ def _run_streaming(cmd: list[str], *, stdin_text: str, cwd: str, env: dict, time
         for line in proc.stderr:
             if line.startswith(_EVENT_PREFIX):
                 try:
-                    on_event(json.loads(line[len(_EVENT_PREFIX):]))
+                    on_event(json.loads(line[len(_EVENT_PREFIX) :]))
                 except (ValueError, TypeError):
                     stderr_lines.append(line.rstrip())
             else:
@@ -164,7 +166,9 @@ class PiAgentExecutor:
                 "Ensure Node.js is installed and PI_NODE_COMMAND is correct."
             ) from exc
         except subprocess.TimeoutExpired as exc:
-            progress.add_event(issue.key, {"source": "pi", "ev": "error", "text": f"timed out after {self.timeout_seconds}s"})
+            progress.add_event(
+                issue.key, {"source": "pi", "ev": "error", "text": f"timed out after {self.timeout_seconds}s"}
+            )
             raise RuntimeError(
                 f"Pi SDK runner timed out after {self.timeout_seconds}s "
                 f"(provider={self.provider}, model={self.model}). Raise PI_TIMEOUT_SECONDS or lower PI_THINKING_LEVEL."

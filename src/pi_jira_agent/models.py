@@ -11,9 +11,7 @@ _BLOCK_NODE_TYPES = {
     "panel",
 }
 
-_JIRA_SMART_LINK_RE = re.compile(
-    r"\[(?P<label>[^\[\]\|]+)\|(?P<url>https?://[^\[\]\|]+)(?:\|smart-link)?\]"
-)
+_JIRA_SMART_LINK_RE = re.compile(r"\[(?P<label>[^\[\]\|]+)\|(?P<url>https?://[^\[\]\|]+)(?:\|smart-link)?\]")
 _JIRA_ATTACHMENT_REF_RE = re.compile(r"\[\^([^\]]+)\]")
 _JIRA_MEDIA_RE = re.compile(r"!(?P<name>[^!|]+)(?:\|[^!]*)?!")
 
@@ -56,7 +54,6 @@ def _replace_jira_smart_link(match: re.Match[str]) -> str:
     return f"{label} ({url})"
 
 
-
 def _normalize_jira_markup_string(text: str) -> str:
     normalized = _JIRA_SMART_LINK_RE.sub(_replace_jira_smart_link, text)
     normalized = _JIRA_ATTACHMENT_REF_RE.sub(r"Attachment: \1", normalized)
@@ -65,7 +62,6 @@ def _normalize_jira_markup_string(text: str) -> str:
         normalized,
     )
     return _normalize_text_lines(normalized)
-
 
 
 def _adf_node_to_text(node: Any, list_depth: int = 0) -> str:
