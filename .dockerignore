@@ -1,0 +1,35 @@
+# Local environments and secrets
+.env
+myenv/
+venv/
+.venv/
+
+# Dependencies restored inside the image
+node_modules/
+frontend/node_modules/
+docs/node_modules/
+
+# Build output (the image builds the SPA itself)
+src/pi_jira_agent/static/dist/
+docs/build/
+docs/.docusaurus/
+
+# Runtime data
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Tooling / VCS
+.git/
+.github/
+.claude/
+.idea/
+.vscode/
+docs/

@@ -1,0 +1,7 @@
+# The repo is LF everywhere. A CRLF entrypoint.sh will not exec in the Linux
+# container ("bad interpreter"), so shell scripts are pinned explicitly.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
