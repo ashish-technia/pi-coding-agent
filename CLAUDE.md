@@ -35,9 +35,12 @@ and the module list at the end of it are easy to leave behind.
 ## Commands
 
 ```bash
+scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
+scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
 pytest -q                                    # full suite (39 tests); every external system is faked
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
+uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
 
 python -m pi_jira_agent --port 8000 --reload # API + built SPA on :8000
 python scripts/demo_server.py 8090           # everything faked; a full run finishes in seconds, no credentials
@@ -50,10 +53,23 @@ cd docs && npm start                         # Docusaurus site
 
 Run the server with `python -m pi_jira_agent`, not bare `uvicorn`: psycopg's async driver cannot run on
 Windows' default Proactor loop, so `__main__.py` installs the selector loop from `eventloop.py`
-(`tests/conftest.py` does the equivalent). There is no Python linter/formatter configured.
+(`tests/conftest.py` does the equivalent).
+
+ruff lints and formats (`[tool.ruff]` in `pyproject.toml`); pyright runs in basic mode with
+`reportTypedDictNotRequiredAccess` off, because `GraphState` is partial by design. pre-commit runs ruff
+and gitleaks before each commit and blocks pushes to `main`. CI is `.github/workflows/ci.yml`; every job
+calls `scripts/check.sh`, so add a new check there, not in the workflow.
+
+## Working agreement
+
+The project plan in Claude Docs is the single source of truth
+(https://claude.ai/code/artifact/7a0153b7-80f4-47ba-9ea5-135769b99660): requirements R-01..R-49 live in
+its Requirements tab. Every change starts from a requirement on a feature branch cut from `main`
+(`r-37-foundations`), commits are named `R-37: <imperative summary>`, and work reaches `main` only
+through a pull request with green CI. Update the plan's status and Changelog with the change.
 
 `.claude/launch.json` defines preview servers: `pi-jira-agent` (8000), `demo` (8091), `frontend-dev` (5173),
-`docusaurus` (3001). They use `myenv/Scripts/python.exe`.
+`docusaurus` (3001). They use `.venv/Scripts/python.exe` (created by `uv sync --extra dev`).
 
 ## Architecture
 

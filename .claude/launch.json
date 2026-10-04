@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "pi-jira-agent",
-      "runtimeExecutable": "myenv/Scripts/python.exe",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [
         "-m",
         "pi_jira_agent",
@@ -15,7 +15,7 @@
     },
     {
       "name": "demo",
-      "runtimeExecutable": "myenv/Scripts/python.exe",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [
         "scripts/demo_server.py",
         "8091"

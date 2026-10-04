@@ -41,8 +41,8 @@ See [Docker deployment](docs/docs/operations/docker.md) for how repositories are
 ## Quick start (local)
 
 ```bash
-python -m venv myenv && myenv\Scripts\activate       # Windows
-pip install -e ".[dev]"
+uv sync --extra dev && .venv\Scripts\activate          # Windows; exact versions from uv.lock
+pre-commit install                                      # ruff + gitleaks hooks, guard on pushes to main
 npm install                                             # Pi runner deps
 cd frontend && npm install && npm run build && cd ..    # builds into src/pi_jira_agent/static/dist
 docker compose up -d                                    # Postgres + Redis (optional; SQLite works without)
@@ -110,8 +110,8 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-pytest -q                                   # 27 tests, all externals faked
-PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # against Postgres
+scripts/check.sh all                        # lint, types, 39 tests, frontend and docs builds, as CI runs them
+scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site
 ```
