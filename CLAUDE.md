@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (53 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (55 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -147,7 +147,9 @@ a cross-repo change land and are reviewed together.
 
 ### State and persistence
 
-`graph/state.py` defines `GraphState` (a `TypedDict`). Checkpoints are Postgres when `DATABASE_URL` is set,
+`graph/state.py` defines `GraphState` (a `TypedDict`) and `initial_state()`, which must give every field a
+value: a restarted issue reuses its checkpoint thread, and any key the new input omits keeps the previous
+run's value (`tests/test_state.py` enforces this). Checkpoints are Postgres when `DATABASE_URL` is set,
 otherwise a SQLite file at `GRAPH_CHECKPOINT_DB`. Any pydantic model stored in the state must be listed in
 `make_serde()` in `graph/build.py` (`allowed_msgpack_modules`) or checkpoints fail to deserialize.
 
