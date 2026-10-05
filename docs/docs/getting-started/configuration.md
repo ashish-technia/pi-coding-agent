@@ -18,7 +18,7 @@ All settings come from environment variables or `.env` (see `.env.example`). The
 
 Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`). Pi providers: anything Pi's registry supports (OpenAI, Anthropic, Google, Bedrock, Azure, OpenAI-compatible).
 
-`PI_THINKING_LEVEL` (`off` … `xhigh`) applies to planning and coding; `PI_TIMEOUT_SECONDS` (default 600) bounds one Pi call.
+`PI_THINKING_LEVEL` (`off` … `xhigh`) applies to planning and coding; `PI_TIMEOUT_SECONDS` (default 600) bounds one Pi call. `MAX_CONCURRENT_RUNS` (default 2) caps how many Pi sessions run at once across all runs: a run waiting at a gate holds no slot, and a run that finds every slot taken waits with the label *Waiting for a free agent slot*.
 
 ## Repository and delivery
 

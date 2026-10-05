@@ -26,6 +26,7 @@ from .orchestrator import (
     route_after_review,
     route_after_scope_check,
 )
+from .slots import PiSlots
 from .state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,7 @@ def build_graph():
     repos = settings.repos()
     repo_map = {r.name: r for r in repos}
     workspaces = make_workspaces()
+    slots = PiSlots(settings.max_concurrent_runs)
     bitbucket_clients = {
         r.name: BitbucketClient(
             base_url=settings.bitbucket_base_url,
@@ -130,9 +132,9 @@ def build_graph():
     graph.add_node("await_requirements", await_requirements)
     graph.add_node("scope_check", make_scope_check(requirements_llm))
     graph.add_node("prepare_workspace", make_prepare_workspace(workspaces, repo_map))
-    graph.add_node("planning_agent", make_planning_agent(planner, repo_map, workspaces))
+    graph.add_node("planning_agent", make_planning_agent(planner, repo_map, workspaces, slots))
     graph.add_node("await_plan", await_plan)
-    graph.add_node("coding_agent", make_coding_agent(coder, repo_map, workspaces))
+    graph.add_node("coding_agent", make_coding_agent(coder, repo_map, workspaces, slots))
     graph.add_node("review_agent", make_review_agent(review_llm, review_rules=settings.review_rules()))
     graph.add_node("phase_gate", phase_gate)
     graph.add_node("await_final", make_await_final(pr_enabled=settings.pr_enabled))

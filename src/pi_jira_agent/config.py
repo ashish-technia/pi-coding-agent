@@ -74,6 +74,14 @@ class Settings(BaseSettings):
             "large monorepos with a high thinking level can need 10 minutes or more."
         ),
     )
+    max_concurrent_runs: int = Field(
+        default=2,
+        ge=1,
+        description=(
+            "How many Pi sessions (planning or coding) may run at once across all runs. "
+            "Runs waiting at a gate do not count; extra runs wait for a free slot."
+        ),
+    )
     pi_thinking_level: str = Field(
         default="medium",
         description=(
@@ -375,6 +383,7 @@ class Settings(BaseSettings):
             "pi": {
                 "thinking_level": self.pi_thinking_level,
                 "timeout_seconds": self.pi_timeout_seconds,
+                "max_concurrent_runs": self.max_concurrent_runs,
                 "agent_dir": self.pi_agent_dir,
             },
             "repo": {

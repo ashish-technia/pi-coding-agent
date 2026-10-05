@@ -54,13 +54,14 @@ STAGE_OF_NODE = {
 }
 
 
-def mark(issue_key: str, node: str) -> None:
+def mark(issue_key: str, node: str, *, label: str | None = None) -> None:
+    label = label or NODE_LABELS.get(node, node)
     _progress[issue_key] = {
         "node": node,
-        "label": NODE_LABELS.get(node, node),
+        "label": label,
         "since": time.time(),
     }
-    add_event(issue_key, {"ev": "node", "node": node, "label": NODE_LABELS.get(node, node)})
+    add_event(issue_key, {"ev": "node", "node": node, "label": label})
 
 
 def get(issue_key: str) -> dict | None:

@@ -289,3 +289,37 @@ async def test_missing_worktree_stops_the_run_instead_of_starting_empty(service,
     status = await wait_paused(service, key)
     assert status["status"] == "stuck_error"
     assert "worktree" in status["error"] and "missing" in status["error"]
+
+
+async def test_runs_beyond_the_cap_wait_for_a_slot(fakes, monkeypatch):
+    import asyncio
+
+    from pi_jira_agent.config import settings
+    from pi_jira_agent.graph.slots import WAITING_LABEL
+    from pi_jira_agent.service import AutomationService
+
+    monkeypatch.setattr(settings, "max_concurrent_runs", 1)
+    svc = AutomationService()
+    await svc.start()
+    try:
+        fakes["runner"].gate = asyncio.Event()
+        keys = [_key(), _key()]
+        for key in keys:
+            await svc.start_run(key)
+            await wait_paused(svc, key)
+            await svc.submit_decision(key, {"action": "approve"})
+
+        for _ in range(500):
+            labels = [(await svc.get_status(key))["node_label"] for key in keys]
+            if WAITING_LABEL in labels and len(fakes["runner"].calls) == 1:
+                break
+            await asyncio.sleep(0.02)
+        else:
+            raise AssertionError(f"second run never waited for a slot: {labels}")
+
+        fakes["runner"].gate.set()
+        for key in keys:
+            assert (await wait_paused(svc, key))["status"] == "pending_plan"
+        assert len(fakes["runner"].calls) == 2
+    finally:
+        await svc.stop()

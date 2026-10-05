@@ -6,6 +6,7 @@ from ...pi_agent import PiAgentExecutor
 from ...workspace import RunWorkspaces
 from .. import progress
 from ..repo_context import RepoMap, describe, selected_repos
+from ..slots import PiSlots
 from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,9 @@ def phase_plan(plan: AgentResult, mode: str, phase_index: int) -> AgentResult:
     )
 
 
-def make_coding_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces) -> CodingNode:
+def make_coding_agent(
+    pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces, slots: PiSlots
+) -> CodingNode:
     async def coding_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         key = state["issue_key"]
@@ -68,16 +71,17 @@ def make_coding_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: 
             iteration,
             len(work_order.plan_steps),
         )
-        code_result: AgentResult = await pi_agent.run_with_mode(
-            issue,
-            repo_cwd=workspaces.cwd(key, repos),
-            repo_roots=workspaces.roots_payload(key, repos),
-            execute_changes=True,
-            branch_name=plan_result.branch_name,
-            plan=work_order,
-            requirements=state.get("requirements"),
-            review_feedback=review_feedback if iteration > 0 else "",
-        )
+        async with slots.hold(issue.key, "coding_agent"):
+            code_result: AgentResult = await pi_agent.run_with_mode(
+                issue,
+                repo_cwd=workspaces.cwd(key, repos),
+                repo_roots=workspaces.roots_payload(key, repos),
+                execute_changes=True,
+                branch_name=plan_result.branch_name,
+                plan=work_order,
+                requirements=state.get("requirements"),
+                review_feedback=review_feedback if iteration > 0 else "",
+            )
         logger.info("Coding agent completed for issue %s", issue.key)
 
         # Nothing is committed until pr_node, so each repo's worktree holds every

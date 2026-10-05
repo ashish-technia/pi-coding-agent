@@ -36,6 +36,8 @@ export default function SettingsPage() {
             <dd>{cfg.pi.thinking_level}</dd>
             <dt>Pi timeout</dt>
             <dd>{cfg.pi.timeout_seconds} s</dd>
+            <dt>Concurrent agent sessions</dt>
+            <dd>{cfg.pi.max_concurrent_runs}</dd>
             <dt>Agent context dir</dt>
             <dd className="mono">{cfg.pi.agent_dir}</dd>
           </dl>

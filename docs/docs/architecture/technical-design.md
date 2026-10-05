@@ -156,6 +156,7 @@ src/pi_jira_agent/
     ├── decisions.py   decision models, parse_decision, parse_comment_command, command_help
     ├── orchestrator.py route_after_* functions
     ├── progress.py    mark/get/clear, add_event/events, NODE_LABELS, STAGE_OF_NODE
+    ├── slots.py       PiSlots: caps concurrent Pi sessions (MAX_CONCURRENT_RUNS)
     └── nodes/
         ├── fetch_issue.py       Jira fetch (or inline issue)
         ├── requirements_agent.py make_requirements_agent, make_scope_check

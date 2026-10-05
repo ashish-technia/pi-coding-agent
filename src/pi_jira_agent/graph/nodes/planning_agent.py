@@ -5,6 +5,7 @@ from ...pi_agent import PiAgentExecutor
 from ...workspace import RunWorkspaces
 from .. import progress
 from ..repo_context import RepoMap, describe, selected_repos
+from ..slots import PiSlots
 from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,9 @@ logger = logging.getLogger(__name__)
 PlanningNode = AsyncNode
 
 
-def make_planning_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces) -> PlanningNode:
+def make_planning_agent(
+    pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces, slots: PiSlots
+) -> PlanningNode:
     async def planning_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         progress.mark(issue.key, "planning_agent")
@@ -30,15 +33,16 @@ def make_planning_agent(pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces
                 issue.key,
                 describe(repos),
             )
-        plan_result: AgentResult = await pi_agent.run_with_mode(
-            issue,
-            repo_cwd=workspaces.cwd(state["issue_key"], repos),
-            repo_roots=workspaces.roots_payload(state["issue_key"], repos),
-            execute_changes=False,
-            plan=previous_plan,
-            requirements=state.get("requirements"),
-            reviewer_notes=notes,
-        )
+        async with slots.hold(issue.key, "planning_agent"):
+            plan_result: AgentResult = await pi_agent.run_with_mode(
+                issue,
+                repo_cwd=workspaces.cwd(state["issue_key"], repos),
+                repo_roots=workspaces.roots_payload(state["issue_key"], repos),
+                execute_changes=False,
+                plan=previous_plan,
+                requirements=state.get("requirements"),
+                reviewer_notes=notes,
+            )
         phases_total = len(plan_result.phases) if plan_result.phases else 1
         logger.info("Plan for %s: %d step(s), %d phase(s)", issue.key, len(plan_result.plan_steps), phases_total)
         return {

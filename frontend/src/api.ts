@@ -203,7 +203,7 @@ export interface RunSummary {
 export interface AppConfig {
   app_name: string
   stages: Record<'requirements' | 'planning' | 'coding' | 'review', { provider: string; model: string }>
-  pi: { thinking_level: string; timeout_seconds: number; agent_dir: string }
+  pi: { thinking_level: string; timeout_seconds: number; max_concurrent_runs: number; agent_dir: string }
   repo: { local_path: string; remote: string; target_branch: string; runs_root: string; config_path: string }
   repos: RepoConfig[]
   delivery: {

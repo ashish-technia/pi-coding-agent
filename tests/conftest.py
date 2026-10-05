@@ -211,6 +211,7 @@ class FakeRunner:
     def __init__(self):
         self.calls: list[dict] = []
         self.phases = True
+        self.gate = None  # an asyncio.Event a test sets to hold every plan call until it is released
 
     async def __call__(
         self,
@@ -256,6 +257,8 @@ class FakeRunner:
                 files_changed=[label(s) for s in plan.plan_steps] if plan else ["a.py"],
                 plan_steps=plan.plan_steps if plan else [],
             )
+        if self.gate is not None:
+            await self.gate.wait()
         steps = [
             PlanStep(file="src/client.py", action="modify", change="add retry loop", evidence="no retry today"),
             PlanStep(file="tests/test_client.py", action="create", change="test retry", evidence="no tests"),
