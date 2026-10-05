@@ -11,6 +11,7 @@ from typing import cast
 
 from ..graph.decisions import command_help, parse_comment_command
 from ..jira_client import JiraClient
+from ..models import JiraIssue
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,24 @@ def render_pending(interrupt_value: dict) -> str:
         lines = [f"Waiting for input ({kind})."]
     lines += ["", command_help(cast(str, kind))]
     return "\n".join(lines)
+
+
+def approver_account_ids(rules: list[str], issue: JiraIssue | None) -> set[str]:
+    """The Atlassian account ids allowed to answer this issue's gates.
+
+    Fails closed: a rule that cannot be resolved (an issue started inline has no reporter
+    id) adds nobody, and no rules means nobody.
+    """
+    allowed: set[str] = set()
+    for rule in rules:
+        if rule == "reporter" and issue:
+            allowed.add(issue.reporter_account_id)
+        elif rule == "assignee" and issue:
+            allowed.add(issue.assignee_account_id)
+        elif rule.startswith("account:"):
+            allowed.add(rule[8:].strip())
+    allowed.discard("")
+    return allowed
 
 
 class JiraCommentChannel:

@@ -216,6 +216,14 @@ class Settings(BaseSettings):
         default="",
         description="Atlassian accountId of the agent's service account (ignore its own comments).",
     )
+    gate_approvers: str = Field(
+        default="reporter,assignee",
+        description=(
+            "Who may answer a gate with a Jira comment, comma-separated: `reporter`, `assignee` "
+            "(of the issue) and `account:<Atlassian accountId>`. Anyone else is ignored. Empty "
+            "means nobody. Decisions made in the UI are not affected."
+        ),
+    )
     jira_trigger_label: str = Field(
         default="ai-agent",
         description="Label that marks an issue for the agent (used by the Jira Automation rule).",
@@ -261,6 +269,16 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("gate_approvers")
+    @classmethod
+    def _check_gate_approvers(cls, value: str) -> str:
+        for rule in (r.strip() for r in value.split(",") if r.strip()):
+            if rule not in {"reporter", "assignee"} and not (rule.startswith("account:") and rule[8:].strip()):
+                raise ValueError(
+                    f"GATE_APPROVERS entry {rule!r} is not valid. Use reporter, assignee or account:<accountId>."
+                )
+        return value
+
     @field_validator("pi_thinking_level")
     @classmethod
     def _check_thinking_level(cls, value: str) -> str:
@@ -271,6 +289,9 @@ class Settings(BaseSettings):
 
     def pi_env_passthrough_names(self) -> list[str]:
         return [name.strip() for name in self.pi_env_passthrough.split(",") if name.strip()]
+
+    def gate_approver_rules(self) -> list[str]:
+        return [rule.strip() for rule in self.gate_approvers.split(",") if rule.strip()]
 
     def allowed_projects_set(self) -> set[str]:
         if not self.allowed_projects.strip():
@@ -424,6 +445,7 @@ class Settings(BaseSettings):
                 "jira_base_url": self.jira_base_url,
                 "jira_comments_enabled": self.jira_comments_enabled,
                 "jira_comment_channel_enabled": self.jira_comment_channel_enabled,
+                "gate_approvers": self.gate_approver_rules(),
                 "jira_trigger_label": self.jira_trigger_label,
             },
             "review": {

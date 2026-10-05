@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from .channels.jira_comments import JiraCommentChannel
+from .channels.jira_comments import JiraCommentChannel, approver_account_ids
 from .config import settings
 from .graph import progress
 from .graph.build import build_graph, make_checkpointer, make_jira_client, make_serde, make_workspaces
@@ -75,6 +75,8 @@ class AutomationService:
         # issue cannot both find it idle and both start it.
         self._locks: dict[str, asyncio.Lock] = {}
         self._seen_comments: dict[str, collections.deque[str]] = {}
+        # (issue, gate, author) triples already told they may not answer, so each is told once.
+        self._refused: set[tuple[str, str, str]] = set()
         self.registry = make_registry(settings.database_url, settings.graph_checkpoint_db)
         self.workspaces = make_workspaces()
         self.jira_channel: JiraCommentChannel | None = None
@@ -274,7 +276,7 @@ class AutomationService:
     async def get_pending(self, issue_key: str) -> dict | None:
         return _pending_of(await self._compiled.aget_state(self._config(issue_key)))
 
-    async def submit_decision(self, issue_key: str, payload: dict) -> dict:
+    async def submit_decision(self, issue_key: str, payload: dict, *, decided_by: str = "ui") -> dict:
         """Validate a human decision against the pending gate and resume the graph.
 
         ``gate_id`` in the payload names the pause being answered. The HTTP API requires it;
@@ -302,6 +304,7 @@ class AutomationService:
             ):
                 raise ValueError("Pull request creation is disabled (PR_CREATION_ENABLED=false).")
             resume = decision.model_dump(mode="json")
+            resume["decided_by"] = decided_by  # set here, so a caller cannot claim to be someone else
             logger.info("Decision for %s at %s: %s", issue_key, pending_type, resume.get("action"))
             self._run_background(
                 issue_key, self._compiled.ainvoke(Command(resume=resume), config=self._config(issue_key))
@@ -327,13 +330,39 @@ class AutomationService:
         decision = self.jira_channel.decision_from_comment(pending.get("type", ""), body, author_account_id)
         if decision is None:
             return {"issue": issue_key, "handled": False, "reason": "comment is not a command"}
+        if not await self._may_answer(issue_key, pending["gate_id"], author_account_id):
+            return {"issue": issue_key, "handled": False, "reason": "author is not allowed to answer this gate"}
         try:
             # The command was read against this gate, so it may only answer this gate.
-            status = await self.submit_decision(issue_key, {**decision, "gate_id": pending["gate_id"]})
+            status = await self.submit_decision(
+                issue_key,
+                {**decision, "gate_id": pending["gate_id"]},
+                decided_by=f"jira:{author_account_id}",
+            )
         except (ValueError, ConflictError) as exc:
             await self.jira_channel.notify_text(issue_key, f"I could not apply that reply: {exc}")
             return {"issue": issue_key, "handled": False, "reason": str(exc)}
         return {"issue": issue_key, "handled": True, "decision": decision, **status}
+
+    async def _may_answer(self, issue_key: str, gate_id: str, author_account_id: str) -> bool:
+        """Whether a Jira commenter is on the approver list (GATE_APPROVERS) for this issue.
+
+        Someone who is not gets one reply per gate saying so; further commands from them
+        at that gate are dropped silently.
+        """
+        state = await self._compiled.aget_state(self._config(issue_key))
+        allowed = approver_account_ids(settings.gate_approver_rules(), state.values.get("issue") if state else None)
+        if author_account_id and author_account_id in allowed:
+            return True
+        logger.warning("Ignored a gate reply on %s from %r: not an approver", issue_key, author_account_id)
+        refusal = (issue_key, gate_id, author_account_id)
+        if self.jira_channel and refusal not in self._refused:
+            self._refused.add(refusal)
+            who = " or ".join(settings.gate_approver_rules()) or "nobody"
+            await self.jira_channel.notify_text(
+                issue_key, f"I did not apply that reply: only {who} may answer this run's gates."
+            )
+        return False
 
     async def retry(self, issue_key: str) -> dict:
         """Resume a run stuck on a node that previously raised an exception."""
@@ -425,6 +454,7 @@ class AutomationService:
             "max_iterations": values.get("max_iterations"),
             "retry_count": values.get("retry_count", 0),
             "auto_resumes": values.get("auto_resumes") or 0,
+            "decision_log": values.get("decision_log") or [],
             "code_result": _dump(values.get("code_result")),
             "repos": values.get("repos") or [],
             "diffs": values.get("diffs") or {},

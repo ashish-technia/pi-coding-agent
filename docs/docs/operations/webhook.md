@@ -72,6 +72,15 @@ The agent includes the valid commands in every comment it posts. Full list:
 
 Anything else is ignored and, if the agent cannot apply a command, it replies with the reason.
 
+### Who may answer
+
+Only the accounts named by `GATE_APPROVERS` may answer a gate from Jira: by default the issue's
+reporter and assignee, as they were when the run fetched the issue. Add specific people with
+`account:<Atlassian accountId>`. A command from anyone else is ignored; the agent says so once per
+person per gate and stays silent after that. The rule's body must therefore send
+`author_account_id`; a reply without it is never applied. A run started in the UI with an inline
+issue has no reporter or assignee id, so only `account:` entries can answer it from Jira.
+
 A command only answers the gate that was pending when it arrived. Send `comment_id` in the rule's
 body (as above): Jira Automation can deliver a web request more than once, and without the id a
 repeated `/approve` or `/continue` would answer the next gate too.

@@ -6,6 +6,7 @@ On resume LangGraph re-executes the node from the top, so gates must be pure
 until the interrupt call.
 """
 
+import datetime as dt
 import logging
 
 from langgraph.types import interrupt
@@ -15,6 +16,20 @@ from .. import progress
 from ..state import GraphState
 
 logger = logging.getLogger(__name__)
+
+
+def _logged(state: GraphState, gate: str, decision: dict) -> dict:
+    """The state update that appends this decision to the run's log: which gate, what, who, when.
+
+    `decided_by` is added by the service ("ui", or "jira:<accountId>"), never by the caller.
+    """
+    entry = {
+        "gate": gate,
+        "action": decision.get("action"),
+        "by": decision.get("decided_by") or "unknown",
+        "at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+    }
+    return {"decision_log": [*(state.get("decision_log") or []), entry]}
 
 
 def await_requirements(state: GraphState) -> dict:
@@ -29,6 +44,7 @@ def await_requirements(state: GraphState) -> dict:
             "scope_check": scope.model_dump() if scope else None,
         }
     )
+    log = _logged(state, "requirements_approval", decision)
     action = decision.get("action")
     if action == "approve":
         edited = decision.get("requirements")
@@ -38,14 +54,16 @@ def await_requirements(state: GraphState) -> dict:
             "scope_acknowledged": bool(decision.get("acknowledge_scope", False)),
             "status": "planning",
             "current_node": "await_requirements",
+            **log,
         }
     if action == "revise":
         return {
             "requirements_notes": decision.get("notes", ""),
             "status": "framing_requirements",
             "current_node": "await_requirements",
+            **log,
         }
-    return {"status": "cancelled", "current_node": "await_requirements"}
+    return {"status": "cancelled", "current_node": "await_requirements", **log}
 
 
 def await_plan(state: GraphState) -> dict:
@@ -59,6 +77,7 @@ def await_plan(state: GraphState) -> dict:
             "phases_total": state.get("phases_total", 1),
         }
     )
+    log = _logged(state, "plan_approval", decision)
     action = decision.get("action")
     if action == "approve":
         mode = decision.get("mode", "all")
@@ -73,10 +92,11 @@ def await_plan(state: GraphState) -> dict:
             "phase_base": {},
             "status": "coding",
             "current_node": "await_plan",
+            **log,
         }
     if action == "refine":
-        return {"plan_notes": decision.get("notes", ""), "status": "planning", "current_node": "await_plan"}
-    return {"status": "cancelled", "current_node": "await_plan"}
+        return {"plan_notes": decision.get("notes", ""), "status": "planning", "current_node": "await_plan", **log}
+    return {"status": "cancelled", "current_node": "await_plan", **log}
 
 
 def phase_gate(state: GraphState) -> dict:
@@ -109,6 +129,7 @@ def phase_gate(state: GraphState) -> dict:
             "review_omitted_files": state.get("review_omitted_files") or [],
         }
     )
+    log = _logged(state, "phase_gate", decision)
     if decision.get("action") == "continue":
         return {
             "phase_diffs": phase_diffs,
@@ -119,8 +140,9 @@ def phase_gate(state: GraphState) -> dict:
             "review_feedback": "",
             "status": "coding",
             "current_node": "phase_gate",
+            **log,
         }
-    return {"phase_diffs": phase_diffs, "status": "pending_final", "current_node": "phase_gate"}
+    return {"phase_diffs": phase_diffs, "status": "pending_final", "current_node": "phase_gate", **log}
 
 
 def make_await_final(*, pr_enabled: bool):
@@ -151,16 +173,18 @@ def make_await_final(*, pr_enabled: bool):
                 "phases_total": state.get("phases_total", 1),
             }
         )
+        log = _logged(state, "final_review", decision)
         if decision.get("action") == "create_pr" and pr_enabled:
             updates: dict = {
                 "pr_title": decision.get("pr_title", "").strip(),
                 "status": "creating_pr",
                 "current_node": "await_final",
+                **log,
             }
             description = decision.get("pr_description")
             if description and code_result:
                 updates["code_result"] = code_result.model_copy(update={"pr_description": description})
             return updates
-        return {"status": "done", "current_node": "await_final"}
+        return {"status": "done", "current_node": "await_final", **log}
 
     return await_final

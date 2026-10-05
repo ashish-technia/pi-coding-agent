@@ -43,6 +43,8 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 
 `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (the agent's service account in flow 2), `JIRA_TRANSITION_DONE_ID`, `JIRA_COMMENTS_ENABLED`, `ALLOWED_PROJECTS`.
 
+`GATE_APPROVERS` (default `reporter,assignee`) says who may answer a gate with a Jira comment: the issue's `reporter`, its `assignee`, and any `account:<Atlassian accountId>`. A command from anyone else is ignored and answered once; an empty value means nobody. It does not apply to decisions made in the UI.
+
 Flow 2 only: `JIRA_COMMENT_CHANNEL_ENABLED`, `JIRA_AGENT_ACCOUNT_ID`, `JIRA_TRIGGER_LABEL`, `WEBHOOK_SECRET`.
 
 ## Persistence and queue

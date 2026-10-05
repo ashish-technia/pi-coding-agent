@@ -67,6 +67,7 @@ class GraphState(TypedDict, total=False):
     current_node: str | None  # persisted so restarts can show where the run is
     retry_count: int  # error-based retries (distinct from the review loop)
     auto_resumes: int  # times the service resumed this run by itself after a restart
+    decision_log: list[dict]  # one entry per answered gate: gate, action, by, at
     error: str | None
 
 
@@ -120,6 +121,7 @@ def initial_state(
             "current_node": None,
             "retry_count": 0,
             "auto_resumes": 0,
+            "decision_log": [],
             "error": None,
         },
     )

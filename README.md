@@ -63,7 +63,7 @@ Everything is in `.env` (see `.env.example`). The important groups:
 - **Review rules:** `REVIEW_RULES_PATH` points at a Markdown file of must-check items (default `review-rules.md`).
 - **Side effects:** `PR_CREATION_ENABLED` gates commit/push/PR; `JIRA_COMMENTS_ENABLED` gates status comments.
 - **Persistence:** `DATABASE_URL` (Postgres) or the SQLite fallback; `REDIS_URL` for the queue.
-- **Flow 2:** `JIRA_COMMENT_CHANNEL_ENABLED`, `JIRA_AGENT_ACCOUNT_ID`, `JIRA_TRIGGER_LABEL`, `WEBHOOK_SECRET`.
+- **Flow 2:** `GATE_APPROVERS` (who may answer a gate from Jira; default `reporter,assignee`), `JIRA_COMMENT_CHANNEL_ENABLED`, `JIRA_AGENT_ACCOUNT_ID`, `JIRA_TRIGGER_LABEL`, `WEBHOOK_SECRET`.
 
 The Settings page in the UI shows the effective, non-secret configuration.
 
@@ -110,7 +110,7 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-scripts/check.sh all                        # lint, types, 64 tests, frontend and docs builds, as CI runs them
+scripts/check.sh all                        # lint, types, 67 tests, frontend and docs builds, as CI runs them
 scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site

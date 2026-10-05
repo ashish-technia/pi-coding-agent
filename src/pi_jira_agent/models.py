@@ -160,6 +160,9 @@ class JiraIssue(BaseModel):
     description: str = ""
     project_key: str
     reporter: str | None = None
+    # Atlassian account ids, used to decide who may answer this issue's gates from Jira.
+    reporter_account_id: str = ""
+    assignee_account_id: str = ""
     issue_type: str = ""
     status: str = ""
     labels: list[str] = []
@@ -213,6 +216,8 @@ def issue_from_api(payload: dict, base_url: str = "") -> JiraIssue:
         description=normalize_jira_text(fields.get("description") or ""),
         project_key=project.get("key", ""),
         reporter=reporter.get("displayName"),
+        reporter_account_id=reporter.get("accountId") or "",
+        assignee_account_id=(fields.get("assignee") or {}).get("accountId") or "",
         issue_type=issue_type.get("name", ""),
         status=status.get("name", ""),
         labels=list(fields.get("labels") or []),

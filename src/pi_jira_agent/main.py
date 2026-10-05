@@ -1,3 +1,4 @@
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -146,7 +147,9 @@ def _is_allowed_project(project_key: str) -> bool:
 
 
 def _check_secret(provided: str) -> None:
-    if provided != settings.webhook_secret:
+    # Constant-time: an ordinary comparison answers faster the earlier the first wrong
+    # character is, which lets a caller find the secret one character at a time.
+    if not hmac.compare_digest(provided.encode(), settings.webhook_secret.encode()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook secret")
 
 
