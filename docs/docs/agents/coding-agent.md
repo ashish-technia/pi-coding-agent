@@ -75,7 +75,9 @@ This gives the coding agent specific guidance on what to fix in the next attempt
 | Field | Value |
 |---|---|
 | `code_result` | `AgentResult` — the final commit/PR metadata |
-| `diffs` | `{repo name: git diff}`; repositories with no changes are absent |
+| `diffs` | `{repo name: git diff}` of the whole change so far; repositories with no changes are absent |
+| `phase_diff` | `{repo name: git diff}` of what the current phase added; this is what the reviewer gets |
+| `tree_shas` | `{repo name: tree SHA}` of each worktree after this pass |
 | `status` | `"reviewing"` |
 | `iteration` | Incremented by 1 |
 | `current_node` | `"coding_agent"` |
@@ -93,6 +95,18 @@ restarted) makes the node raise, so the run shows `stuck_error`. It is never rec
 because it held the run's uncommitted work.
 
 ## git diff capture
+
+Each pass takes one tree snapshot per repository and makes two diffs from it:
+
+- `diffs`: base commit → snapshot. The whole change so far, shown to the human at the gates.
+- `phase_diff`: the tree the current phase started from → snapshot. Only this phase's work, shown
+  to the reviewer. In the first phase, and in "all at once" mode, the two are the same.
+
+When the human continues at the phase gate, the gate copies `tree_shas` into `phase_base`, so the
+next phase is diffed against the tree this one ended on. Review retries inside a phase keep the
+same `phase_base`, so the reviewer sees the phase's work as it now stands. The snapshot is kept
+alive by a ref, `refs/pi-jira/<issue key>/phase-<n>`, which is deleted with the worktree when the
+run ends.
 
 After Pi SDK completes, `GitBranchClient.diff()` captures every change in each selected
 repository's worktree, **including files the agent created**. It does not use `git diff HEAD`,

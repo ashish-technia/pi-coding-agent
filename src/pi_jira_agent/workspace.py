@@ -41,6 +41,13 @@ class RunWorkspaces:
     def path(self, issue_key: str, repo_name: str) -> Path:
         return self.run_dir(issue_key) / repo_name
 
+    def snapshot_ref(self, issue_key: str, phase_index: int) -> str:
+        """The ref that keeps a phase's latest tree snapshot alive until the run ends."""
+        return f"{self._ref_prefix(issue_key)}phase-{phase_index}"
+
+    def _ref_prefix(self, issue_key: str) -> str:
+        return f"refs/pi-jira/{self.run_dir(issue_key).name}/"
+
     def exists(self, issue_key: str, repo_name: str) -> bool:
         return (self.path(issue_key, repo_name) / ".git").exists()
 
@@ -128,6 +135,7 @@ class RunWorkspaces:
                         shutil.rmtree(target, ignore_errors=True)
                     logger.info("Removed worktree for %s in repo %s", issue_key, repo.name)
                 base.prune_worktrees()
+                base.delete_refs(self._ref_prefix(issue_key))
                 if branch:
                     base.delete_branch(branch)
             except Exception:  # noqa: BLE001

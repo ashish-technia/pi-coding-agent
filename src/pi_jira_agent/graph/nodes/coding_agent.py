@@ -86,15 +86,29 @@ def make_coding_agent(
 
         # Nothing is committed until pr_node, so each repo's worktree holds every
         # change made for this issue so far. Repos left untouched stay out of the map.
+        # `diffs` is the whole change so far, for the human; `phase_diff` is what this phase
+        # added on top of the tree the previous phase ended on, for the reviewer.
         base_shas = state.get("base_shas") or {}
+        phase_base = state.get("phase_base") or {}
+        tree_shas: dict[str, str] = {}
         diffs: dict[str, str] = {}
+        phase_diff: dict[str, str] = {}
         for name, git_branch in git_clients.items():
-            if git_branch.has_changes():
-                diffs[name] = git_branch.diff(base=base_shas.get(name) or "HEAD")
+            if not git_branch.has_changes():
+                continue
+            base = base_shas.get(name) or "HEAD"
+            tree = git_branch.snapshot(keep_as=workspaces.snapshot_ref(key, phase_index))
+            tree_shas[name] = tree
+            diffs[name] = git_branch.diff(base=base, tree=tree)
+            since_phase_start = git_branch.diff(base=phase_base.get(name) or base, tree=tree)
+            if since_phase_start.strip():
+                phase_diff[name] = since_phase_start
 
         return {
             "code_result": code_result,
             "diffs": diffs,
+            "phase_diff": phase_diff,
+            "tree_shas": tree_shas,
             "status": "reviewing",
             "iteration": iteration + 1,
             "current_node": "coding_agent",

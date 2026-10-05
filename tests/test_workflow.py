@@ -272,6 +272,7 @@ async def test_ended_run_leaves_no_worktree_or_branch(service, fakes, ending):
     assert not (runs_root() / key).exists()
     assert key not in git(base_clone("web"), "worktree", "list")
     assert f"feature/{key}-retry" not in git(base_clone("web"), "branch", "--list")
+    assert key not in git(base_clone("web"), "for-each-ref", "refs/pi-jira"), "snapshot refs go with the run"
     assert (f"feature/{key}-retry" in remote_branches("web")) is (ending == "create_pr")
 
 
@@ -355,3 +356,31 @@ async def test_oversized_diff_is_reviewed_partially_and_the_gate_says_so(fakes, 
         assert f"b/{omitted[0]}" in status["pending"]["diffs"]["web"], "the human still sees the whole diff"
     finally:
         await svc.stop()
+
+
+async def test_phase_review_sees_only_that_phases_changes(service, fakes):
+    key = _key()
+    fakes["llm"].review_script = [True]
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve", "mode": "phased"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_phase"
+    assert "b/src/client.py" in fakes["llm"].last_prompts["review"]
+    assert "b/src/client.py" in status["pending"]["phase_diff"]["web"]
+
+    await service.submit_decision(key, {"action": "continue"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_final"
+
+    # Phase 2 only created the test file; phase 1's edit was reviewed already.
+    prompt = fakes["llm"].last_prompts["review"]
+    assert "b/tests/test_client.py" in prompt and "b/src/client.py" not in prompt
+
+    first, second = status["phase_diffs"]
+    assert "b/src/client.py" in first["web"] and "b/tests/test_client.py" not in first["web"]
+    assert "b/tests/test_client.py" in second["web"] and "b/src/client.py" not in second["web"]
+    # The human's final diff is still the whole change.
+    assert "b/src/client.py" in status["diffs"]["web"] and "b/tests/test_client.py" in status["diffs"]["web"]
