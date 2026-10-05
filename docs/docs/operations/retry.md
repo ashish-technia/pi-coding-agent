@@ -55,6 +55,22 @@ await self.graph.aupdate_state(config, updates)
 self._run_background(issue_key, self.graph.ainvoke(None, config=config))
 ```
 
+## After a restart
+
+When the service starts it looks through the run registry for runs that were cut short: a node was
+due, no gate was waiting for an answer and no node had raised. Each such run is resumed from its
+last checkpoint **once** (`auto_resumes` in state counts it). Runs waiting at a gate are left
+exactly as they were, with the same `gate_id`.
+
+If the run is interrupted a second time it is not resumed again, so a run that takes the process
+down cannot do so in a loop. It then shows `stuck_error` with a message saying it was interrupted,
+and `POST /api/runs/{key}/retry` continues it.
+
+A coding pass that was interrupted leaves half an edit in the worktree. When `coding_agent` runs
+again it first puts each worktree back to what the last finished pass left (its tree snapshot, or
+the base commit before the first pass), so the agent does not build on a half-applied change. A
+worktree that is gone is still an error, never recreated empty.
+
 Key behaviours:
 
 | Stuck node | What retry does |

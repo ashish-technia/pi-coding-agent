@@ -36,6 +36,14 @@ _STATUS_FOR_PENDING = {
 _ENDED_STATUSES = {"done", "failed", "cancelled"}
 
 
+# A run cut short by a restart is resumed by the service this many times. After that it
+# waits for a person, so a run that takes the process down cannot do so in a loop.
+_MAX_AUTO_RESUMES = 1
+_INTERRUPTED_MESSAGE = (
+    "The run was interrupted (the service stopped while it was working) and has already been "
+    "resumed automatically. Retry it to continue from its last checkpoint."
+)
+
 # How many comment ids per issue are remembered to spot a redelivered Jira comment.
 _SEEN_COMMENTS_PER_ISSUE = 200
 
@@ -82,6 +90,7 @@ class AutomationService:
         checkpointer.serde = make_serde()
         self.graph = self._graph_builder.compile(checkpointer=checkpointer)
         await self.registry.setup()
+        await self._resume_interrupted()
         logger.info(
             "AutomationService ready (checkpointer=%s, jira_channel=%s)",
             "postgres" if settings.database_url else "sqlite",
@@ -89,8 +98,11 @@ class AutomationService:
         )
 
     async def stop(self) -> None:
-        for task in list(self._tasks.values()):
+        tasks = list(self._tasks.values())
+        for task in tasks:
             task.cancel()
+        # Let them unwind before the checkpointer closes underneath them.
+        await asyncio.gather(*tasks, return_exceptions=True)
         await self.registry.close()
         if self._checkpointer_cm:
             await self._checkpointer_cm.__aexit__(None, None, None)
@@ -112,6 +124,12 @@ class AutomationService:
         async def runner() -> None:
             try:
                 await coro
+            except asyncio.CancelledError:
+                # Shutdown. The run is interrupted, not paused or failed: record nothing, so
+                # the next start finds it exactly as a crash would have left it.
+                self._tasks.pop(issue_key, None)
+                progress.clear(issue_key)
+                raise
             except Exception:
                 logger.exception("Background graph run failed for issue %s", issue_key)
             finally:
@@ -123,6 +141,38 @@ class AutomationService:
                 await self._after_run(issue_key)
 
         self._tasks[issue_key] = asyncio.create_task(runner())
+
+    @staticmethod
+    def _interrupted(state) -> bool:
+        """True when a run has a node to run next but nothing explains why it is not running:
+        no gate is waiting for an answer and no node raised. The process stopped under it."""
+        return (
+            bool(state and state.next) and _pending_of(state) is None and not AutomationService._first_task_error(state)
+        )
+
+    async def _resume_interrupted(self) -> None:
+        """On startup, pick up the runs a restart cut short. Runs waiting at a gate are left alone."""
+        for row in await self.registry.list(limit=1000):
+            issue_key = row["issue_key"]
+            if row.get("status") in _ENDED_STATUSES:
+                continue
+            try:
+                config = self._config(issue_key)
+                async with self._lock(issue_key):
+                    state = await self._compiled.aget_state(config)
+                    if issue_key in self._tasks or not self._interrupted(state):
+                        continue
+                    resumes = state.values.get("auto_resumes") or 0
+                    if resumes >= _MAX_AUTO_RESUMES:
+                        logger.warning(
+                            "%s was interrupted again after an automatic resume; leaving it for a retry.", issue_key
+                        )
+                        continue
+                    logger.info("Resuming %s after a restart (next=%s)", issue_key, list(state.next))
+                    await self._compiled.aupdate_state(config, {"auto_resumes": resumes + 1})
+                    self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not resume %s after a restart", issue_key)
 
     async def _release_workspace(self, issue_key: str, *, force: bool = False) -> None:
         """Remove the run's worktrees and local branch once it has ended (or always, with ``force``)."""
@@ -193,12 +243,10 @@ class AutomationService:
 
         existing = await self._compiled.aget_state(config)
         if existing and existing.next:
-            next_nodes = set(existing.next)
-            if next_nodes <= _GATE_NODES:
-                # Paused for a human — do not restart.
-                return
-            if not self._first_task_error(existing):
-                logger.info("Auto-resuming %s after restart (next=%s)", issue_key, next_nodes)
+            # Unfinished: paused for a human, stuck on an error (that is what retry is for), or
+            # cut short by a restart. Only the last one is continued here, because someone asked.
+            if self._interrupted(existing):
+                logger.info("Resuming interrupted run %s (next=%s)", issue_key, list(existing.next))
                 self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
             return
 
@@ -376,6 +424,7 @@ class AutomationService:
             "iteration": values.get("iteration"),
             "max_iterations": values.get("max_iterations"),
             "retry_count": values.get("retry_count", 0),
+            "auto_resumes": values.get("auto_resumes") or 0,
             "code_result": _dump(values.get("code_result")),
             "repos": values.get("repos") or [],
             "diffs": values.get("diffs") or {},
@@ -390,7 +439,9 @@ class AutomationService:
             result["status"] = _STATUS_FOR_PENDING.get(pending.get("type", ""), result["status"])
 
         if state.next and not is_running:
-            error = self._first_task_error(state)
+            # Not running although a node is due: either that node raised, or the process
+            # stopped under the run and its automatic resume is used up (or not yet started).
+            error = self._first_task_error(state) or (_INTERRUPTED_MESSAGE if self._interrupted(state) else None)
             if error:
                 result["status"] = "stuck_error"
                 result["error"] = error

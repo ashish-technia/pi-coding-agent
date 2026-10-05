@@ -9,6 +9,8 @@ title: Checkpointing & Restarts
 
 Pi Jira Agent uses **`AsyncSqliteSaver`** from `langgraph-checkpoint-sqlite` to persist graph state after every node completes.
 
+Runs interrupted by a restart are resumed automatically, once each; see [Retry](./retry.md#after-a-restart).
+
 Each run is keyed by `thread_id = issue.key` (e.g. `HE-1234`). The SQLite file is at the path configured by `GRAPH_CHECKPOINT_DB` (default: `data/graph_checkpoints.sqlite`).
 
 ```

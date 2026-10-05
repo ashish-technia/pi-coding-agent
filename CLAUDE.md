@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (58 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (61 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -157,6 +157,12 @@ value: a restarted issue reuses its checkpoint thread, and any key the new input
 run's value (`tests/test_state.py` enforces this). Checkpoints are Postgres when `DATABASE_URL` is set,
 otherwise a SQLite file at `GRAPH_CHECKPOINT_DB`. Any pydantic model stored in the state must be listed in
 `make_serde()` in `graph/build.py` (`allowed_msgpack_modules`) or checkpoints fail to deserialize.
+
+On startup `_resume_interrupted()` scans the registry and resumes runs a restart cut short (a node is due,
+no pending interrupt, no task error) once each, counted in `GraphState["auto_resumes"]`; after that the run
+shows `stuck_error` until someone retries it. Cancelling a background task (shutdown) records nothing, so
+it looks exactly like a crash. `coding_agent` restores each worktree to the last finished pass before it
+runs, so a re-run never builds on a half-applied edit.
 
 Two status subtleties in `service.py`: a paused node has not returned yet, so the checkpointed `status` is
 stale and the effective one is derived from the pending interrupt via `_STATUS_FOR_PENDING`; and a node that
