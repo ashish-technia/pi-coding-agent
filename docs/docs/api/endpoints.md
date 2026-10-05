@@ -40,7 +40,7 @@ Full status:
 | `requirements`, `requirements_original`, `scope_check` | requirements stage |
 | `plan_result`, `execution_mode`, `phase_index`, `phases_total` | plan stage |
 | `repos` | repo names this run works in, primary first |
-| `code_result`, `diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → working-tree diff |
+| `code_result`, `diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → the run's worktree diff, new files included |
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
 | `error`, `stuck_on` | present when `status == "stuck_error"` |
 

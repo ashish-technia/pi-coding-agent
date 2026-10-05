@@ -302,7 +302,7 @@ flowchart TD
   fin -- "finish" --> e((end))
 ```
 
-`diffs` maps each selected repository to the cumulative diff of the run's worktree against the branch base (`git diff HEAD`), so the reviewer sees everything done so far in every repository; `phase_diffs` snapshots the whole map after each accepted phase. Nothing is committed before `pr_node`, which is what keeps those worktrees complete.
+`diffs` maps each selected repository to the cumulative diff of the run's worktree against the commit it was created from (a tree snapshot of the worktree, so new files are included), so the reviewer sees everything done so far in every repository; `phase_diffs` snapshots the whole map after each accepted phase. Nothing is committed before `pr_node`, which is what keeps those worktrees complete.
 
 ### 6.5 Flow 2: Jira comment round trip
 
@@ -347,7 +347,7 @@ The graph never knows which channel it is on except through `state.channel`, whi
 | input | `issue_key`, `issue`, `channel`, `repos`, `base_shas` |
 | requirements | `requirements_original`, `requirements`, `requirements_notes`, `scope_check`, `scope_acknowledged` |
 | plan | `plan_result`, `plan_notes`, `execution_mode`, `phase_index`, `phases_total` |
-| code/review | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` |
+| code/review | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `review_omitted_files`, `iteration`, `max_iterations` |
 | delivery | `pr_title`, `pr_urls` |
 | bookkeeping | `status`, `current_node`, `retry_count`, `error` |
 

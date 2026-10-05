@@ -24,6 +24,16 @@ on its own, a call added in one repository looks like a reference to something t
 exist, and the reviewer would reject correct code. The system prompt tells it to read the diffs
 together for exactly that reason.
 
+## Diff size limit
+
+`cap_diffs()` keeps the prompt under `REVIEW_MAX_DIFF_CHARS`. When the diffs are larger it leaves
+out **whole files**, never part of a hunk: lockfiles and generated files first (`package-lock.json`,
+`uv.lock`, `*.min.js`, `*.map` and similar), then the largest remaining files, until the rest fits.
+The prompt lists the files that were left out and tells the reviewer not to reject for content it
+cannot see. The same list is stored as `review_omitted_files` and shown at the phase and final
+gates (and in the Jira comment) as "the review saw a partial diff", so the human knows the approval
+did not cover those files. The human still sees the full diff.
+
 ## Verdict
 
 ```python
@@ -33,7 +43,7 @@ class ReviewVerdict(BaseModel):
     must_violations: list[str]
 ```
 
-A verdict with any `must_violations` is treated as rejected even if `approved` is true. Feedback plus violations become `review_feedback`, which the coding agent receives verbatim on the next attempt.
+A verdict with any `must_violations` is treated as rejected even if `approved` is true. Feedback plus violations become `review_feedback`, which the coding agent receives verbatim on the next attempt. `review_omitted_files` is rewritten on every pass.
 
 ## Routing
 

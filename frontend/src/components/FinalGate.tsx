@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Decision, Pending } from '../api'
 import DiffViewer from './DiffViewer'
+import PartialReviewNote from './PartialReviewNote'
 
 type FinalPending = Extract<Pending, { type: 'final_review' }>
 
@@ -28,6 +29,7 @@ export default function FinalGate({ pending, busy, onDecide }: { pending: FinalP
           </span>
         ))}
       </p>
+      <PartialReviewNote files={pending.review_omitted_files} />
       <DiffViewer diffs={pending.diffs} />
 
       {showPr && (

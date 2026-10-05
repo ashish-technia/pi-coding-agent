@@ -94,8 +94,12 @@ because it held the run's uncommitted work.
 
 ## git diff capture
 
-After Pi SDK completes, `GitBranchClient.diff()` runs `git diff HEAD` in each selected repository to
-capture all changes relative to the last commit. Nothing is committed until the PR node, so each
-worktree still holds every change made for the issue so far. A repository the agent never
+After Pi SDK completes, `GitBranchClient.diff()` captures every change in each selected
+repository's worktree, **including files the agent created**. It does not use `git diff HEAD`,
+which leaves untracked files out. `snapshot()` copies the index to a temporary file, runs
+`git add -A` and `git write-tree` against that copy, and the diff is taken between the commit the
+worktree was created from (`base_shas`) and the resulting tree. The real index is never touched,
+and `.gitignore` is respected. Nothing is committed until the PR node, so each worktree still holds
+every change made for the issue so far. A repository the agent never
 touched is simply absent from `diffs`; if `diffs` is empty altogether the review agent rejects with
 "no changes were made".

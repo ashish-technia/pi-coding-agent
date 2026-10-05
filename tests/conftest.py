@@ -15,9 +15,9 @@ _TMP.mkdir(parents=True, exist_ok=True)
 # Two repos, but only "web" is selected by default, so a test that says nothing about
 # repos behaves exactly like the single-repo setup. test_workflow opts into both.
 _REPOS = _TMP / "repos.json"
+# No tests/test_client.py: the plan's second step creates it, so every run produces a new file.
 _SEED_FILES = {
     "src/client.py": "import httpx\n\n\ndef get(url):\n    return httpx.get(url)\n",
-    "tests/test_client.py": "def test_placeholder():\n    assert True\n",
 }
 
 

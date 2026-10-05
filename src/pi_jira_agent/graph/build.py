@@ -135,7 +135,14 @@ def build_graph():
     graph.add_node("planning_agent", make_planning_agent(planner, repo_map, workspaces, slots))
     graph.add_node("await_plan", await_plan)
     graph.add_node("coding_agent", make_coding_agent(coder, repo_map, workspaces, slots))
-    graph.add_node("review_agent", make_review_agent(review_llm, review_rules=settings.review_rules()))
+    graph.add_node(
+        "review_agent",
+        make_review_agent(
+            review_llm,
+            review_rules=settings.review_rules(),
+            max_diff_chars=settings.review_max_diff_chars,
+        ),
+    )
     graph.add_node("phase_gate", phase_gate)
     graph.add_node("await_final", make_await_final(pr_enabled=settings.pr_enabled))
     graph.add_node(
