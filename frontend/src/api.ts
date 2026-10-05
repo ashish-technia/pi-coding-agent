@@ -1,3 +1,5 @@
+import { accessToken, signInAgain } from './auth'
+
 // Typed client for the pi-jira-agent API. Shapes mirror src/pi_jira_agent/service.py.
 
 export type Status =
@@ -228,6 +230,7 @@ export interface AppConfig {
     jira_comment_channel_enabled: boolean
     jira_trigger_label: string
   }
+  auth: { mode: 'none' | 'oidc'; issuer: string; client_id: string; audience: string }
   review: { max_iterations: number; max_diff_chars: number; rules_path: string; rules: string }
   persistence: { checkpointer: string; queue: string }
 }
@@ -253,10 +256,17 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const token = accessToken()
   const res = await fetch(url, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   })
+  // Signed out underneath us (expired or revoked token): go and sign in again.
+  if (res.status === 401) void signInAgain()
   const text = await res.text()
   let body: unknown = null
   try {

@@ -44,6 +44,13 @@ services:
       GIT_HTTPS_USERNAME: ${GIT_HTTPS_USERNAME:-}
       GIT_HTTPS_PASSWORD: ${GIT_HTTPS_PASSWORD:-}
       APP_PORT: 8090
+      # Sign-in. The container serves the network, so AUTH_MODE=none is refused here.
+      # Browsers reach Keycloak on localhost; this container reaches it by service name.
+      AUTH_MODE: ${AUTH_MODE:-oidc}
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:8081/realms/pi-jira-agent}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-pi-jira-agent-ui}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-pi-jira-agent-api}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://keycloak:8080/realms/pi-jira-agent/protocol/openid-connect/certs}
     ports:
       - "${APP_PORT:-8090}:8090"
     volumes:
@@ -71,8 +78,29 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     # On a Linux host whose uid is not 1000, uncomment so the mounted repo stays writable:
     # user: "${UID:-1000}:${GID:-1000}"
+
+  # OpenID Connect issuer for development and the pilot. Development mode: HTTP and an
+  # embedded database. See docs/docs/operations/authentication.md before exposing it.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: pi-jira-agent-keycloak
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      # The address browsers use; it becomes the issuer in every token.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8081}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      # Realm, UI client and audience mapper. No users, no secrets.
+      - ./docker/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+      - pijira_keycloak:/opt/keycloak/data/h2
 
   postgres:
     image: postgres:16
@@ -107,6 +135,8 @@ services:
 
 volumes:
   pijira_pgdata:
+  # Keycloak's users and sessions.
+  pijira_keycloak:
   pijira_data:
   # Cloned repositories. `docker compose down -v` deletes them and they are re-cloned.
   pijira_workspace:

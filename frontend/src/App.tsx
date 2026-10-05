@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { signOut, type Session } from './auth'
 
-export default function App() {
+export default function App({ session }: { session: Session }) {
   return (
     <>
       <header className="topbar">
@@ -12,6 +13,12 @@ export default function App() {
             Runs
           </NavLink>
           <NavLink to="/settings">Settings</NavLink>
+          {session.mode === 'oidc' && (
+            <>
+              <span className="small muted">{session.name}</span>
+              <button onClick={() => void signOut()}>Sign out</button>
+            </>
+          )}
         </nav>
       </header>
       <main className="page">

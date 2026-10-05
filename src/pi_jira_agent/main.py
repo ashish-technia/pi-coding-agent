@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import auth
 from .config import settings
 from .models import JiraIssue, JiraWebhookPayload
 from .queue_worker import make_job_queue
@@ -58,6 +59,20 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 # check_dir=False: a fresh clone has no static/ until the UI is built (its dist/ is git-ignored),
 # and the API must still start; "/" reports the missing build instead.
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR), check_dir=False), name="static")
+
+
+@app.middleware("http")
+async def require_sign_in(request: Request, call_next):
+    """Every /api route needs an identity, in one place, so a new route cannot be left open.
+
+    The UI, its assets and /health stay open; the webhooks authenticate with their shared secret.
+    """
+    if auth.needs_auth(request.url.path) and request.method != "OPTIONS":
+        try:
+            request.state.user = await auth.identify(request.headers.get("authorization"))
+        except auth.AuthError as exc:
+            return JSONResponse(status_code=401, content={"detail": str(exc)}, headers={"WWW-Authenticate": "Bearer"})
+    return await call_next(request)
 
 
 @app.get("/assets/{file_path:path}", include_in_schema=False)
@@ -173,6 +188,12 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/auth/config")
+async def get_auth_config() -> dict:
+    """Open: the UI reads this before anyone is signed in, to learn where to sign in."""
+    return auth.public_config()
+
+
 @app.get("/api/config")
 async def get_config() -> dict:
     return settings.public_view()
@@ -212,8 +233,10 @@ async def get_run(issue_key: str) -> dict:
 
 
 @app.post("/api/runs/{issue_key}/decision")
-async def submit_decision(issue_key: str, req: DecisionRequest) -> dict:
-    return await automation.submit_decision(issue_key, req.payload())
+async def submit_decision(issue_key: str, req: DecisionRequest, request: Request) -> dict:
+    user: auth.Identity = request.state.user
+    decided_by = "ui" if settings.auth_mode == "none" else user.label
+    return await automation.submit_decision(issue_key, req.payload(), decided_by=decided_by)
 
 
 @app.post("/api/runs/{issue_key}/retry")
@@ -271,19 +294,6 @@ async def jira_webhook(payload: JiraWebhookPayload, x_webhook_secret: str = Head
         return {"status": "queued", "issue": issue.key}
     await _handle_job(job)
     return {"status": "started", "issue": issue.key}
-
-
-# --------------------------------------------------------------------------- legacy routes (old UI)
-
-
-@app.post("/run", include_in_schema=False)
-async def run_manual_legacy(req: StartRunRequest) -> dict:
-    return await start_run(req)
-
-
-@app.get("/runs/{issue_key}/status", include_in_schema=False)
-async def get_status_legacy(issue_key: str) -> dict:
-    return await automation.get_status(issue_key)
 
 
 # SPA fallback: any non-API path renders the app so client-side routes work on refresh.

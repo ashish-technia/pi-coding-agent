@@ -147,6 +147,7 @@ src/pi_jira_agent/
 ├── pi_agent.py        PiAgentExecutor: payload, streaming subprocess, event forwarding
 ├── jira_client.py     get_issue (fields+comments), add_comment (ADF), transition_issue
 ├── bitbucket_client.py create_pull_request
+├── auth.py            identify(): OIDC bearer tokens; check_bind(); public_config()
 ├── git_client.py      worktrees, create_branch, has_changes, diff, commit_all, push_branch
 ├── workspace.py       RunWorkspaces: one worktree per run and repo under RUNS_ROOT
 ├── channels/jira_comments.py  render_pending, JiraCommentChannel
@@ -471,6 +472,7 @@ Known limits (by design, for now):
 
 ## 12. Security model
 
+- **Sign-in.** With `AUTH_MODE=oidc` one middleware requires a valid OIDC access token on every `/api/*` request (`auth.py`: signature, issuer, audience, expiry); the API keeps no session. `AUTH_MODE=none` is only served on a loopback address. Webhooks authenticate with the shared secret, compared in constant time. See [Sign-in](../operations/authentication).
 - **Secrets** come only from the environment; the API never returns them. The Pi runner does **not** inherit that environment: `pi_environment()` in `pi_agent.py` gives it a fixed base (`PATH`, `HOME` and the like), the names in `PI_ENV_PASSTHROUGH`, and the provider key as `PI_PROVIDER_API_KEY`. The agent's `bash` therefore cannot print the Jira, Bitbucket, database or webhook secrets. This covers the environment only: files the service can read (its `.env`, git credentials on disk) are still reachable by absolute path until each run has its own sandbox (R-12).
 - **Inbound auth**: every Jira ingress endpoint requires `x-webhook-secret`; project allow-listing (`ALLOWED_PROJECTS`) applies to all entry points. The UI has no authentication of its own and is intended to sit behind a network boundary or a reverse proxy that adds it.
 - **Blast radius of the agents**: plan mode cannot write; execute mode can run shell commands and edit files. Pi does not sandbox its tools to `cwd` — absolute paths are resolved as given — so containment rests on the agent only being told about the repositories in `repos.json`, plus the runner's after-the-fact check that every reported path lies inside one of them (§9.1). Nothing is pushed or published without an explicit human `create_pr` decision. Jira comments are only posted when the corresponding flag is on.

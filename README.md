@@ -63,6 +63,7 @@ Everything is in `.env` (see `.env.example`). The important groups:
 - **Review rules:** `REVIEW_RULES_PATH` points at a Markdown file of must-check items (default `review-rules.md`).
 - **Side effects:** `PR_CREATION_ENABLED` gates commit/push/PR; `JIRA_COMMENTS_ENABLED` gates status comments.
 - **Persistence:** `DATABASE_URL` (Postgres) or the SQLite fallback; `REDIS_URL` for the queue.
+- **Sign-in:** `AUTH_MODE` is `none` (default, served on `127.0.0.1` only) or `oidc` with `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`. `docker compose` starts Keycloak as the issuer and needs `KEYCLOAK_ADMIN_PASSWORD`.
 - **Flow 2:** `GATE_APPROVERS` (who may answer a gate from Jira; default `reporter,assignee`), `JIRA_COMMENT_CHANNEL_ENABLED`, `JIRA_AGENT_ACCOUNT_ID`, `JIRA_TRIGGER_LABEL`, `WEBHOOK_SECRET`.
 
 The Settings page in the UI shows the effective, non-secret configuration.
@@ -94,6 +95,7 @@ list in `repos.json`; see [Repositories](docs/docs/getting-started/repositories.
 | `POST` | `/api/runs/{key}/decision` | `{"action": ...}` validated against the pending gate |
 | `POST` | `/api/runs/{key}/retry` | resume a run stuck on an error |
 | `GET` | `/api/config` | effective configuration (no secrets) |
+| `GET` | `/api/auth/config` | open: how the UI signs in (`mode`, issuer, client id) |
 | `POST` | `/webhooks/jira/trigger` | flow 2: `{"issue_key"}` from a Jira Automation rule |
 | `POST` | `/webhooks/jira/comment` | flow 2: `{"issue_key","comment_body","author_account_id","comment_id"}` |
 
@@ -110,7 +112,7 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-scripts/check.sh all                        # lint, types, 67 tests, frontend and docs builds, as CI runs them
+scripts/check.sh all                        # lint, types, 80 tests, frontend and docs builds, as CI runs them
 scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site

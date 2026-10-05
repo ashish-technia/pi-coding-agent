@@ -13,7 +13,7 @@ A node raised an unhandled exception (LLM auth error, API timeout, subprocess cr
 
 **UI shows:** red error box with the exception message and a **Retry** button.
 
-**`/status` response:**
+**`GET /api/runs/{key}` response:**
 ```json
 {
   "status": "stuck_error",
@@ -30,11 +30,11 @@ The review agent rejected the diff `REVIEW_MAX_ITERATIONS` times. Terminal state
 
 **UI shows:** orange retry banner explaining the last feedback, then a failure result.
 
-**Recovery:** fix the underlying issue (bad prompt, bad model config, unclear Jira issue) and start a fresh run via `POST /run`.
+**Recovery:** fix the underlying issue (bad prompt, bad model config, unclear Jira issue) and start a fresh run via `POST /api/runs`.
 
 ### 3. Cancelled
 
-Human clicked Quit on the approval screen. Terminal state. A fresh `POST /run` will start a new run.
+Human clicked Quit on the approval screen. Terminal state. A fresh `POST /api/runs` will start a new run.
 
 ---
 
@@ -82,7 +82,7 @@ Key behaviours:
 | `announce_node` | Posts the Jira comment only if it is not on the issue yet, then applies the transition. Bitbucket is not touched again |
 | `prepare_workspace` | Fetches again and creates any worktree that is not there yet |
 
-`retry_count` tracks error-based retries separately from `iteration` (review loop counter). Both are visible in `/status`.
+`retry_count` tracks error-based retries separately from `iteration` (review loop counter). Both are visible in `GET /api/runs/{key}`.
 
 ---
 
