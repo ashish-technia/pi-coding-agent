@@ -31,6 +31,7 @@ NODE_LABELS = {
     "phase_gate": "Awaiting phase decision",
     "await_final": "Awaiting final review",
     "pr_node": "Creating pull request",
+    "announce_node": "Updating Jira",
     "cancelled_node": "Cancelling",
     "failed_node": "Recording failure",
 }
@@ -49,6 +50,7 @@ STAGE_OF_NODE = {
     "phase_gate": "review",
     "await_final": "final",
     "pr_node": "pr",
+    "announce_node": "pr",
     "cancelled_node": "final",
     "failed_node": "review",
 }

@@ -24,7 +24,7 @@ graph TD
   review_agent -.->|rejected, max reached| failed_node
   phase_gate -.->|continue (next phase)| coding_agent
   phase_gate -.->|last phase / stop| await_final
-  await_final -.->|create_pr| pr_node --> E([end])
+  await_final -.->|create_pr| pr_node --> announce_node --> E([end])
   await_final -.->|finish| E
   cancelled_node --> E
   failed_node --> E
@@ -53,7 +53,7 @@ A run carries the repositories it may work in (`repos` in state, chosen by the U
 API). `prepare_workspace` gives the run its own git worktree of each one, created from the target
 branch, so runs never share a working tree. `planning_agent` and `coding_agent` attach all of
 those worktrees to one Pi session; `review_agent`
-sees one labelled diff per repo; `pr_node` opens one pull request per repo that changed. Phases
+sees one labelled diff per repo; `pr_node` opens one pull request per repo that changed, and `announce_node` then tells Jira. Phases
 slice the plan by stage, not by repository. See [Repositories](../getting-started/repositories.md).
 
 ## Loop counters

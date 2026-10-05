@@ -409,3 +409,72 @@ async def test_failed_review_leaves_a_clean_start_for_the_next_run(service, fake
     again = await _to_final_gate(service, fakes, failed)
     attempts = [line for line in again["diffs"]["web"].splitlines() if line.startswith(f"+# {failed} attempt")]
     assert len(attempts) == 2, "one line per file from this run only; nothing left from the failed attempts"
+
+
+async def _delivery_service(monkeypatch):
+    """A service that comments on Jira and transitions the issue after the pull requests."""
+    from pi_jira_agent.config import settings
+    from pi_jira_agent.service import AutomationService
+
+    monkeypatch.setattr(settings, "jira_comments_enabled", True)
+    monkeypatch.setattr(settings, "jira_transition_done_id", "31")
+    svc = AutomationService()
+    await svc.start()
+    return svc
+
+
+async def _two_repos_to_final_gate(svc, fakes, key: str) -> None:
+    fakes["llm"].review_script = [True]
+    await svc.start_run(key, repos=["web", "api"])
+    await wait_paused(svc, key)
+    await svc.submit_decision(key, {"action": "approve"})
+    await wait_paused(svc, key)
+    await svc.submit_decision(key, {"action": "approve", "mode": "all"})
+    assert (await wait_paused(svc, key))["status"] == "pending_final"
+
+
+async def test_pr_step_can_be_retried_without_duplicates(fakes, monkeypatch):
+    svc = await _delivery_service(monkeypatch)
+    try:
+        key = _key()
+        await _two_repos_to_final_gate(svc, fakes, key)
+
+        # The first repo gets its pull request; the second one fails.
+        fakes["fail_once"].add("api-repo")
+        await svc.submit_decision(key, {"action": "create_pr", "pr_title": "TEST: retry"})
+        status = await wait_paused(svc, key)
+        assert status["status"] == "stuck_error" and "api-repo" in status["error"]
+        assert [p["slug"] for p in fakes["prs"]] == ["web-repo"]
+
+        await svc.retry(key)
+        status = await wait_paused(svc, key)
+        assert status["status"] == "done"
+        assert sorted(p["slug"] for p in fakes["prs"]) == ["api-repo", "web-repo"], "exactly one PR per repository"
+        assert sorted(status["pr_urls"]) == ["api", "web"]
+        announcements = [c for c in fakes["comments"][key] if "pull requests" in c]
+        assert len(announcements) == 1 and all(url in announcements[0] for url in status["pr_urls"].values())
+        assert fakes["transitions"] == [f"{key}:31"]
+    finally:
+        await svc.stop()
+
+
+async def test_failed_jira_transition_does_not_repeat_the_pr_or_the_comment(fakes, monkeypatch):
+    svc = await _delivery_service(monkeypatch)
+    try:
+        key = _key()
+        await _two_repos_to_final_gate(svc, fakes, key)
+
+        fakes["fail_once"].add("transition")
+        await svc.submit_decision(key, {"action": "create_pr", "pr_title": "TEST: retry"})
+        status = await wait_paused(svc, key)
+        assert status["status"] == "stuck_error" and status["stuck_on"] == ["announce_node"]
+        assert len(fakes["prs"]) == 2 and sorted(status["pr_urls"]) == ["api", "web"], "PR URLs are already saved"
+
+        await svc.retry(key)
+        status = await wait_paused(svc, key)
+        assert status["status"] == "done"
+        assert len(fakes["prs"]) == 2
+        assert len([c for c in fakes["comments"][key] if "pull requests" in c]) == 1
+        assert fakes["transitions"] == [f"{key}:31"]
+    finally:
+        await svc.stop()

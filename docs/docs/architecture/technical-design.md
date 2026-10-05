@@ -165,7 +165,7 @@ src/pi_jira_agent/
         ├── coding_agent.py      Pi execute mode per phase; phase_plan()
         ├── review_agent.py      structured verdict with review rules
         ├── gates.py             await_requirements, await_plan, phase_gate, make_await_final
-        └── pr_node.py           commit, push, PR, Jira comment/transition
+        └── pr_node.py           pr_node: commit, push, find-or-create PR; announce_node: Jira comment/transition
 node/pi-sdk-runner.mjs   the Pi harness adapter (prompts, allowlist, validation, events)
 frontend/src/            api.ts, pages/{Home,Run,Settings}, components/{Stepper,ActivityPanel,gates,DiffViewer,…}
 tests/                   conftest fakes, test_workflow, test_api, test_decisions
@@ -298,7 +298,7 @@ flowchart TD
   r -- "rejected, max reached" --> f[failed_node]
   pg -- "phased and phases remain:<br/>interrupt → continue" --> c2["phase_index+1, iteration=0"] --> c
   pg -- "last phase / stop / mode=all" --> fin[await_final]
-  fin -- "create_pr + title" --> pr[pr_node: commit, push, PR, Jira]
+  fin -- "create_pr + title" --> pr[pr_node: commit, push, PR<br/>announce_node: Jira]
   fin -- "finish" --> e((end))
 ```
 

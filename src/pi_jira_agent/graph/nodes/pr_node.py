@@ -34,12 +34,8 @@ def _description(code_result: AgentResult, repos: list[RepoConfig], issue_key: s
 
 def make_pr_node(
     bitbucket_clients: dict[str, BitbucketClient],
-    jira: JiraClient,
     workspaces: RunWorkspaces,
     repo_map: RepoMap,
-    *,
-    jira_transition_done_id: str | None,
-    comments_enabled: bool = True,
 ) -> PrNode:
     async def pr_node(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
@@ -75,30 +71,68 @@ def make_pr_node(
             logger.info("Pushing branch %s in repo %s", branch, repo.name)
             git_branch.push_branch(branch)
 
-            logger.info("Creating Bitbucket PR in repo %s for issue %s: %s", repo.name, issue.key, title)
-            pr_result = await bitbucket.create_pull_request(
-                title=title,
-                description=description,
-                source_branch=branch,
-                destination_branch=repo.target_branch,
+            # Every step above is safe to repeat. This one is not, so a retry first looks for
+            # the pull request an earlier attempt may already have opened.
+            pr_result = await bitbucket.find_open_pull_request(
+                source_branch=branch, destination_branch=repo.target_branch
             )
-            logger.info("Bitbucket PR created in repo %s for %s: %s", repo.name, issue.key, pr_result.pr_url)
+            if pr_result:
+                logger.info("Reusing open PR in repo %s for %s: %s", repo.name, issue.key, pr_result.pr_url)
+            else:
+                logger.info("Creating Bitbucket PR in repo %s for issue %s: %s", repo.name, issue.key, title)
+                pr_result = await bitbucket.create_pull_request(
+                    title=title,
+                    description=description,
+                    source_branch=branch,
+                    destination_branch=repo.target_branch,
+                )
+                logger.info("Bitbucket PR created in repo %s for %s: %s", repo.name, issue.key, pr_result.pr_url)
             pr_urls[repo.name] = pr_result.pr_url
 
         if skipped:
             logger.info("Repos with nothing to deliver for %s: %s", issue.key, ", ".join(skipped))
 
-        if comments_enabled and pr_urls:
-            if len(pr_urls) == 1:
-                (only,) = pr_urls.values()
-                body = f"Automation created PR: {only}"
-            else:
-                lines = "\n".join(f"- {name}: {url}" for name, url in pr_urls.items())
-                body = f"Automation created {len(pr_urls)} pull requests for this issue:\n{lines}"
-            await jira.add_comment(issue.key, body)
-        if jira_transition_done_id and pr_urls:
-            await jira.transition_issue(issue.key, jira_transition_done_id)
-
-        return {"status": "done", "pr_urls": pr_urls, "current_node": "pr_node"}
+        # Still "creating_pr": the run is done once announce_node has told Jira.
+        return {"status": "creating_pr", "pr_urls": pr_urls, "current_node": "pr_node"}
 
     return pr_node
+
+
+def announcement(pr_urls: dict[str, str]) -> str:
+    if len(pr_urls) == 1:
+        (only,) = pr_urls.values()
+        return f"Automation created PR: {only}"
+    lines = "\n".join(f"- {name}: {url}" for name, url in pr_urls.items())
+    return f"Automation created {len(pr_urls)} pull requests for this issue:\n{lines}"
+
+
+def make_announce_node(
+    jira: JiraClient,
+    *,
+    jira_transition_done_id: str | None,
+    comments_enabled: bool = True,
+) -> PrNode:
+    async def announce_node(state: GraphState) -> dict:
+        """Tell Jira about the pull requests, in a node of its own.
+
+        `pr_urls` is checkpointed before this runs, so a failure here is retried without
+        going near Bitbucket again.
+        """
+        key = state["issue"].key
+        progress.mark(key, "announce_node")
+        pr_urls = state.get("pr_urls") or {}
+
+        if comments_enabled and pr_urls:
+            body = announcement(pr_urls)
+            # The transition below can fail after the comment was posted; a retry must not post it twice.
+            posted = {comment.body.strip() for comment in (await jira.get_issue(key)).comments}
+            if body.strip() in posted:
+                logger.info("PR comment already on %s; not posting it again.", key)
+            else:
+                await jira.add_comment(key, body)
+        if jira_transition_done_id and pr_urls:
+            await jira.transition_issue(key, jira_transition_done_id)
+
+        return {"status": "done", "current_node": "announce_node"}
+
+    return announce_node
