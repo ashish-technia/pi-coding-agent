@@ -13,7 +13,7 @@ from .graph import progress
 from .graph.build import build_graph, make_checkpointer, make_jira_client, make_serde, make_workspaces
 from .graph.decisions import parse_decision
 from .graph.progress import NODE_LABELS, STAGE_OF_NODE
-from .graph.state import GraphState
+from .graph.state import initial_state
 from .models import JiraIssue
 from .registry import make_registry
 
@@ -164,34 +164,18 @@ class AutomationService:
         # Leftovers of an earlier run of this issue (a crash before cleanup) must not be reused.
         await self._release_workspace(issue_key, force=True)
         logger.info("Starting %s in repo(s) %s", issue_key, ", ".join(r.name for r in selected))
-        initial_state: GraphState = {
-            "issue_key": issue_key,
-            "channel": channel,  # type: ignore[typeddict-item]
-            "repos": [r.name for r in selected],
-            "requirements_notes": "",
-            "plan_notes": "",
-            "iteration": 0,
-            "retry_count": 0,
-            "phase_index": 0,
-            "phases_total": 1,
-            "phase_diffs": [],
-            "phase_base": {},
-            "execution_mode": "all",
-            "max_iterations": settings.review_max_iterations,
-            "status": "fetching",
-            "scope_acknowledged": False,
-            "review_feedback": "",
-            "diffs": {},
-            "pr_urls": {},
-            "pr_title": "",
-        }
-        if inline_issue is not None:
-            initial_state["issue"] = inline_issue
+        state = initial_state(
+            issue_key,
+            channel=channel,
+            repos=[r.name for r in selected],
+            max_iterations=settings.review_max_iterations,
+            issue=inline_issue,
+        )
         progress.reset_activity(issue_key)
         await self.registry.upsert(
             issue_key, summary=inline_issue.summary if inline_issue else None, status="fetching", channel=channel
         )
-        self._run_background(issue_key, self._compiled.ainvoke(initial_state, config=config))
+        self._run_background(issue_key, self._compiled.ainvoke(state, config=config))
         return await self.get_status(issue_key)
 
     # Backwards-compatible name used by the legacy webhook path.

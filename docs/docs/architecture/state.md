@@ -64,6 +64,14 @@ in `graph/build.py`, and each node looks up what it needs by name through
 `graph/repo_context.py`. A name that has disappeared from the config is skipped rather than
 killing an in-flight run.
 
+### Starting state
+
+`initial_state()` in `graph/state.py` builds the input for a new run and gives **every** field a
+value. That matters on a restart: a run's checkpoint thread is its issue key, so starting a
+finished issue again reuses the thread, and LangGraph keeps any key the new input leaves out.
+Without the full set, the previous run's plan, scope findings, diffs or PR URLs would show up in
+the new run. A new `GraphState` field needs a default there; `tests/test_state.py` fails otherwise.
+
 Everything downstream of the selection is keyed the same way — `diffs`, `phase_diffs` and
 `pr_urls` are all maps from repo name — so a single-repo run is simply a map with one entry.
 

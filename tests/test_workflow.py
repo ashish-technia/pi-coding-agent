@@ -509,3 +509,23 @@ async def test_slow_git_push_does_not_block_the_api(service, fakes, monkeypatch)
     assert time.monotonic() - started < 0.5 and any(r["issue_key"] == key for r in runs)
 
     assert (await wait_paused(service, key))["status"] == "done"
+
+
+async def test_restarting_a_finished_issue_starts_from_clean_state(service, fakes):
+    key = _key()
+    await _to_final_gate(service, fakes, key)
+    await service.submit_decision(key, {"action": "create_pr", "pr_title": "TEST: retry"})
+    finished = await wait_paused(service, key)
+    assert finished["status"] == "done" and finished["plan_result"] and finished["pr_urls"]
+
+    await service.start_run(key)
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_requirements"
+    leftovers = {
+        name: status[name]
+        for name in ("plan_result", "scope_check", "code_result", "diffs", "phase_diffs", "pr_urls", "pr_title")
+        if status[name]
+    }
+    assert leftovers == {}, "nothing from the finished run may show in the new one"
+    assert status["review_approved"] is None and not status["review_feedback"]
+    assert status["iteration"] == 0 and status["phase_index"] == 0 and status["retry_count"] == 0

@@ -1,5 +1,5 @@
 from collections.abc import Coroutine
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, Protocol, TypedDict, cast
 
 from ..models import AgentResult, JiraIssue, RequirementsSpec, ScopeCheck
 
@@ -67,6 +67,60 @@ class GraphState(TypedDict, total=False):
     current_node: str | None  # persisted so restarts can show where the run is
     retry_count: int  # error-based retries (distinct from the review loop)
     error: str | None
+
+
+def initial_state(
+    issue_key: str,
+    *,
+    channel: str,
+    repos: list[str],
+    max_iterations: int,
+    issue: JiraIssue | None = None,
+) -> GraphState:
+    """The input a new run starts from: a value for **every** field.
+
+    A run's checkpoint thread is its issue key, so starting a finished issue again reuses
+    the thread, and LangGraph keeps any key the new input leaves out. Spelling out the
+    whole state is what stops the previous run's plan, scope findings or PR URLs from
+    showing up in the next one. `tests/test_state.py` fails when a field is missing here.
+    """
+    return cast(
+        GraphState,
+        {
+            "issue_key": issue_key,
+            "issue": issue,  # None: fetch_issue reads it from Jira
+            "channel": channel,
+            "repos": repos,
+            "base_shas": {},
+            "requirements_original": None,
+            "requirements": None,
+            "requirements_notes": "",
+            "scope_check": None,
+            "scope_acknowledged": False,
+            "plan_result": None,
+            "plan_notes": "",
+            "execution_mode": "all",
+            "phase_index": 0,
+            "phases_total": 1,
+            "code_result": None,
+            "diffs": {},
+            "phase_diff": None,
+            "phase_diffs": [],
+            "tree_shas": {},
+            "phase_base": {},
+            "review_approved": None,
+            "review_feedback": "",
+            "review_omitted_files": [],
+            "iteration": 0,
+            "max_iterations": max_iterations,
+            "pr_title": "",
+            "pr_urls": {},
+            "status": "fetching",
+            "current_node": None,
+            "retry_count": 0,
+            "error": None,
+        },
+    )
 
 
 class AsyncNode(Protocol):
