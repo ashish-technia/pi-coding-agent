@@ -314,6 +314,8 @@ def install_fakes(monkeypatch) -> dict:
             description="Client should retry transient errors.",
             project_key=key.split("-")[0],
             reporter="Ana",
+            reporter_account_id="acc-ana",
+            assignee_account_id="acc-sam",
             comments=[
                 JiraComment(author="Sam", created="2026-09-01", body="Max 3 attempts please."),
                 *[JiraComment(author="agent", created="2026-09-02", body=body) for body in comments.get(key, [])],

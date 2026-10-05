@@ -64,6 +64,9 @@ in `graph/build.py`, and each node looks up what it needs by name through
 `graph/repo_context.py`. A name that has disappeared from the config is skipped rather than
 killing an in-flight run.
 
+`decision_log` (bookkeeping) gets one entry per answered gate: `gate`, `action`, `by` and `at`. `by` is set
+by the service, `ui` or `jira:<accountId>`, never taken from the request.
+
 `auto_resumes` (bookkeeping, next to `retry_count`) counts how often the service resumed the run by
 itself after a restart; it stops at one.
 

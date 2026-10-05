@@ -43,6 +43,7 @@ Full status:
 | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → the run's worktree diff, new files included; `phase_diffs` holds one such map per accepted phase, each with only that phase's changes |
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
 | `error`, `stuck_on` | present when `status == "stuck_error"`: a node raised, or the run was interrupted by a restart and already had its one automatic resume |
+| `decision_log` | one entry per answered gate: `gate`, `action`, `by` (`ui` or `jira:<accountId>`), `at` |
 | `auto_resumes` | how often the service resumed the run by itself after a restart (0 or 1) |
 
 ### `POST /api/runs/{key}/decision`
@@ -88,7 +89,7 @@ Starts a run on the `jira` channel (queued when `USE_QUEUE=true`).
 { "issue_key": "WAAS-643", "comment_body": "/approve phased", "author_account_id": "5f…", "comment_id": "10412" }
 ```
 
-Parses the first line as a command for the pending gate. Comments from `JIRA_AGENT_ACCOUNT_ID` and non-command comments are ignored (`handled: false`). So is a `comment_id` that was already handled, which is how a redelivered web request is kept from answering the next gate; the ids are remembered in memory, per process.
+Parses the first line as a command for the pending gate. Comments from `JIRA_AGENT_ACCOUNT_ID` and non-command comments are ignored (`handled: false`). So is a `comment_id` that was already handled, as is a command whose `author_account_id` is not an approver (`GATE_APPROVERS`); a repeated id is how a redelivered web request is kept from answering the next gate; the ids are remembered in memory, per process.
 
 ### `POST /webhooks/jira` (classic)
 

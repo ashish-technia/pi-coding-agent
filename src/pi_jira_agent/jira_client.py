@@ -6,7 +6,7 @@ from .models import JiraIssue, issue_from_api
 
 logger = logging.getLogger(__name__)
 
-_ISSUE_FIELDS = "summary,description,comment,project,reporter,issuetype,status,labels"
+_ISSUE_FIELDS = "summary,description,comment,project,reporter,assignee,issuetype,status,labels"
 
 
 def _jira_error_text(response: httpx.Response) -> str:
