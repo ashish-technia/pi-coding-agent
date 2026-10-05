@@ -20,6 +20,10 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 
 `PI_THINKING_LEVEL` (`off` … `xhigh`) applies to planning and coding; `PI_TIMEOUT_SECONDS` (default 600) bounds one Pi call. `PI_ENV_PASSTHROUGH` is a comma-separated list of environment variable names the Pi process may inherit. By default it starts with a fixed base only (`PATH`, `HOME`, locale and temp variables; the Windows equivalents on Windows) plus its model key, so none of this service's secrets are in its environment. Add what the agent still needs, such as `HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS` or `JAVA_HOME`. `MAX_CONCURRENT_RUNS` (default 2) caps how many Pi sessions run at once across all runs: a run waiting at a gate holds no slot, and a run that finds every slot taken waits with the label *Waiting for a free agent slot*.
 
+## Sign-in
+
+`AUTH_MODE` is `none` (default; only served on `127.0.0.1`) or `oidc`, which needs `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_AUDIENCE`. `OIDC_SCOPE` and `OIDC_JWKS_URL` are optional. See [Sign-in](../operations/authentication.md).
+
 ## Repository and delivery
 
 | Variable | Meaning |

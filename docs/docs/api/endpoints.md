@@ -7,6 +7,10 @@ title: REST API
 
 Interactive documentation is served at `/docs`. All JSON.
 
+With `AUTH_MODE=oidc` every `/api/*` request except `GET /api/auth/config` needs
+`Authorization: Bearer <access token>`; without a valid one the answer is `401`. The webhooks use
+the `X-Webhook-Secret` header instead. See [Sign-in](../operations/authentication.md).
+
 ## Runs (UI, flow 1)
 
 ### `POST /api/runs`
@@ -66,6 +70,11 @@ between phases), so without it a double-click or a resent request could answer t
 ### `POST /api/runs/{key}/retry`
 
 Resume a run stuck on a node that raised (timeout, missing key, git failure) from its last checkpoint. `409` when the run is running.
+
+### `GET /api/auth/config`
+
+Open, no token needed. `{"mode": "none"}`, or `{"mode": "oidc", "issuer", "client_id", "scope"}`:
+what the UI needs to send a visitor to the issuer.
 
 ### `GET /api/config`
 

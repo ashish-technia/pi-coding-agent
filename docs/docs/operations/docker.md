@@ -133,7 +133,9 @@ Editing `.env` requires `docker compose up -d app` to take effect. `review-rules
 | `REPOS_CONFIG_PATH` | container path to the repository list (default `/app/repos.json`) |
 | `REPOS_ROOT` | where clones live (default `/workspace`); makes the host paths in `repos.json` irrelevant in the container |
 | `RUNS_ROOT` | where each run's git worktrees live (default `/app/data/runs`, on the `pijira_data` volume) |
-| `APP_PORT`, `POSTGRES_PORT`, `REDIS_PORT` | host ports |
+| `APP_PORT`, `POSTGRES_PORT`, `REDIS_PORT`, `KEYCLOAK_PORT` | host ports |
+| `KEYCLOAK_ADMIN_PASSWORD` | admin password for the bundled Keycloak; **required**, compose refuses to start without it |
+| `AUTH_MODE`, `OIDC_*` | sign-in; compose defaults them to the bundled Keycloak. See [Sign-in](./authentication.md) |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | commit identity for the agent's commits |
 | `GIT_AUTOCRLF` | line-ending handling, see above |
 | `GIT_HTTPS_USERNAME`, `GIT_HTTPS_PASSWORD` | explicit git credentials, overriding the Bitbucket ones |
@@ -194,4 +196,4 @@ Two stages. The first builds the SPA with Node and emits `static/dist`. The seco
 - **Worktrees live in the container's volume.** Each run works in its own worktree under `RUNS_ROOT`, so concurrent runs on one repository do not interfere, but the worktrees are only visible to this `app` container; keep a single replica. A bind-mounted host clone will list these worktrees with container paths in `git worktree list` on the host; `git worktree prune` there is harmless once the runs have ended.
 - **The agent sees a minimal environment.** Variables from `.env` and the compose file, including `GIT_HTTPS_PASSWORD` and the Jira and Bitbucket tokens, are not passed to the Pi process. If the agent's `bash` needs a proxy or a tool home, name the variable in `PI_ENV_PASSTHROUGH`. The mounted `.env` file itself is still readable inside the container.
 - **Activity events are in-process.** Restarting `app` clears the live activity feed; the durable record is the checkpoint, so runs resume where they paused.
-- **No authentication on the UI.** Publish port 8000 only on a trusted network, or put a reverse proxy with authentication in front of it.
+- **Sign-in uses the bundled Keycloak in development mode** (HTTP, embedded database). The app container itself refuses to start without sign-in, but see [Sign-in](./authentication.md) before publishing either port beyond a trusted network; the usual answer is a reverse proxy with TLS in front of it.

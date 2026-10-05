@@ -37,12 +37,12 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (67 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (80 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
 
-python -m pi_jira_agent --port 8000 --reload # API + built SPA on :8000
+python -m pi_jira_agent --port 8000 --reload # API + built SPA on 127.0.0.1:8000 (no sign-in; --host 0.0.0.0 needs AUTH_MODE=oidc)
 python scripts/demo_server.py 8090           # everything faked; a full run finishes in seconds, no credentials
 
 cd frontend && npm run build                 # outputs into src/pi_jira_agent/static/dist (what FastAPI serves)
@@ -87,7 +87,12 @@ A Jira issue becomes a reviewed PR through a LangGraph `StateGraph` that pauses 
   status dict the UI polls.
 - `workspace.py` (`RunWorkspaces`) gives each run its own git worktree per repository under `RUNS_ROOT`;
   the service removes them when a run ends. The configured clones are only ever fetched.
-- `main.py` is a thin FastAPI layer over `AutomationService`, plus the SPA fallback route.
+- `main.py` is a thin FastAPI layer over `AutomationService`, plus the SPA fallback route. One middleware
+  (`require_sign_in`) guards every `/api/*` path except `auth.OPEN_API_PATHS`; a new route under `/api` is
+  protected without doing anything, and anything meant to be open must be added to that set on purpose.
+- `auth.py` validates OIDC bearer tokens (`AUTH_MODE=oidc`) and refuses to serve `AUTH_MODE=none` on a
+  non-loopback address (`check_bind`, called from `__main__`). The issuer is generic OIDC; Keycloak in
+  compose is one instance of it. `docker/keycloak/realm.json` must never contain users or secrets.
 - `registry.py` is a *separate* small `runs` table (SQLite or Postgres, chosen the same way as the
   checkpointer) so `/api/runs` can list runs without scanning checkpoints. Keep both backends in sync.
 

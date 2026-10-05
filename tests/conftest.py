@@ -102,6 +102,7 @@ os.environ.update(
         "JIRA_API_TOKEN": "x",
         "REVIEW_API_KEY": "x",
         "USE_QUEUE": "false",
+        "AUTH_MODE": "none",
         "REPO_LOCAL_PATH": str(_TMP),
         "REPOS_CONFIG_PATH": str(_REPOS),
         "RUNS_ROOT": str(_TMP / "runs"),

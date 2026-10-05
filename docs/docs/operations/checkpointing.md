@@ -80,4 +80,4 @@ sqlite3 data/graph_checkpoints.sqlite
 > DELETE FROM checkpoint_writes WHERE thread_id = 'HE-1234';
 ```
 
-Then call `POST /run` again.
+Then call `POST /api/runs` again.

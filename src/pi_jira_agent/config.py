@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .models import RepoConfig
@@ -28,6 +28,33 @@ class Settings(BaseSettings):
 
     app_name: str = "pi-jira-agent"
     webhook_secret: str = Field(..., description="Shared secret for Jira webhook / automation calls.")
+    # --- Sign-in --------------------------------------------------------------
+    auth_mode: Literal["none", "oidc"] = Field(
+        default="none",
+        description=(
+            "'oidc': every /api request needs a bearer token from OIDC_ISSUER. 'none': no "
+            "sign-in, allowed only when the server is bound to this machine (127.0.0.1)."
+        ),
+    )
+    oidc_issuer: str = Field(
+        default="",
+        description="OpenID Connect issuer URL, exactly as it appears in the tokens' `iss` claim.",
+    )
+    oidc_client_id: str = Field(default="", description="Public client id the UI signs in with (PKCE, no secret).")
+    oidc_audience: str = Field(
+        default="",
+        description="Value the access token's `aud` claim must contain for this API.",
+    )
+    oidc_scope: str = Field(default="openid profile email", description="Scopes the UI asks for.")
+    oidc_jwks_url: str = Field(
+        default="",
+        description=(
+            "Where to fetch the issuer's signing keys. Empty = discovered from the issuer. Set "
+            "it when the server reaches the issuer under a different address than browsers do "
+            "(a container talking to Keycloak by service name)."
+        ),
+    )
+
     allowed_projects: str = Field(
         default="",
         description="Comma-separated Jira project keys allowed for processing.",
@@ -269,6 +296,22 @@ class Settings(BaseSettings):
             )
         return value
 
+    @model_validator(mode="after")
+    def _check_oidc(self) -> "Settings":
+        if self.auth_mode == "oidc":
+            missing = [
+                name
+                for name, value in (
+                    ("OIDC_ISSUER", self.oidc_issuer),
+                    ("OIDC_CLIENT_ID", self.oidc_client_id),
+                    ("OIDC_AUDIENCE", self.oidc_audience),
+                )
+                if not value.strip()
+            ]
+            if missing:
+                raise ValueError(f"AUTH_MODE=oidc needs {', '.join(missing)}.")
+        return self
+
     @field_validator("gate_approvers")
     @classmethod
     def _check_gate_approvers(cls, value: str) -> str:
@@ -421,6 +464,12 @@ class Settings(BaseSettings):
         }
         return {
             "app_name": self.app_name,
+            "auth": {
+                "mode": self.auth_mode,
+                "issuer": self.oidc_issuer,
+                "client_id": self.oidc_client_id,
+                "audience": self.oidc_audience,
+            },
             "stages": stages,
             "pi": {
                 "thinking_level": self.pi_thinking_level,
