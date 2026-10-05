@@ -32,6 +32,10 @@ PR** ends the run and discards the changes; the last diff stays in the checkpoin
 
 Either way the run's worktrees and its local branch are removed once the run has ended.
 
+Git runs as a blocking subprocess, and a push to a slow remote can take minutes. The commit and push
+for each repository therefore run in a worker thread (`asyncio.to_thread`), as does every other git
+call made from a node, so the API and other runs keep responding meanwhile.
+
 ## Retrying
 
 Every step is safe to repeat, so `POST /api/runs/{key}/retry` on a run stuck in `pr_node` runs all

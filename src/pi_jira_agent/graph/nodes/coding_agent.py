@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from ...git_client import GitBranchClient
@@ -58,7 +59,7 @@ def make_coding_agent(
             # branch name in every repo, so a multi-repo change is one name.
             for name, git_branch in git_clients.items():
                 logger.info("Creating branch %s in repo %s for issue %s", plan_result.branch_name, name, issue.key)
-                git_branch.create_branch(plan_result.branch_name)
+                await asyncio.to_thread(git_branch.create_branch, plan_result.branch_name)
 
         work_order = phase_plan(plan_result, mode, phase_index)
         logger.info(
@@ -93,16 +94,21 @@ def make_coding_agent(
         tree_shas: dict[str, str] = {}
         diffs: dict[str, str] = {}
         phase_diff: dict[str, str] = {}
-        for name, git_branch in git_clients.items():
-            if not git_branch.has_changes():
-                continue
-            base = base_shas.get(name) or "HEAD"
-            tree = git_branch.snapshot(keep_as=workspaces.snapshot_ref(key, phase_index))
-            tree_shas[name] = tree
-            diffs[name] = git_branch.diff(base=base, tree=tree)
-            since_phase_start = git_branch.diff(base=phase_base.get(name) or base, tree=tree)
-            if since_phase_start.strip():
-                phase_diff[name] = since_phase_start
+
+        def capture() -> None:
+            for name, git_branch in git_clients.items():
+                if not git_branch.has_changes():
+                    continue
+                base = base_shas.get(name) or "HEAD"
+                tree = git_branch.snapshot(keep_as=workspaces.snapshot_ref(key, phase_index))
+                tree_shas[name] = tree
+                diffs[name] = git_branch.diff(base=base, tree=tree)
+                since_phase_start = git_branch.diff(base=phase_base.get(name) or base, tree=tree)
+                if since_phase_start.strip():
+                    phase_diff[name] = since_phase_start
+
+        # git runs as a blocking subprocess; on the event loop it would freeze the API and every other run.
+        await asyncio.to_thread(capture)
 
         return {
             "code_result": code_result,
