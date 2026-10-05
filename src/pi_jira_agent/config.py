@@ -82,6 +82,15 @@ class Settings(BaseSettings):
             "Runs waiting at a gate do not count; extra runs wait for a free slot."
         ),
     )
+    pi_env_passthrough: str = Field(
+        default="",
+        description=(
+            "Comma-separated names of environment variables the Pi process may inherit on top "
+            "of the fixed base (PATH, HOME and the like). Everything else, including every "
+            "secret of this service, is withheld. Typical entries: HTTPS_PROXY, NO_PROXY, "
+            "NODE_EXTRA_CA_CERTS, JAVA_HOME."
+        ),
+    )
     pi_thinking_level: str = Field(
         default="medium",
         description=(
@@ -260,6 +269,9 @@ class Settings(BaseSettings):
             raise ValueError(f"PI_THINKING_LEVEL must be one of {sorted(allowed)}; got {value!r}")
         return value
 
+    def pi_env_passthrough_names(self) -> list[str]:
+        return [name.strip() for name in self.pi_env_passthrough.split(",") if name.strip()]
+
     def allowed_projects_set(self) -> set[str]:
         if not self.allowed_projects.strip():
             return set()
@@ -393,6 +405,7 @@ class Settings(BaseSettings):
                 "thinking_level": self.pi_thinking_level,
                 "timeout_seconds": self.pi_timeout_seconds,
                 "max_concurrent_runs": self.max_concurrent_runs,
+                "env_passthrough": self.pi_env_passthrough_names(),
                 "agent_dir": self.pi_agent_dir,
             },
             "repo": {

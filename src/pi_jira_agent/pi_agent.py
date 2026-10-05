@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -15,12 +17,75 @@ logger = logging.getLogger(__name__)
 _EVENT_PREFIX = "@@PI "
 
 
+# What the agent's process may see of the service's environment. The service holds the Jira,
+# Bitbucket, database and webhook secrets in its own environment; the agent's bash can print
+# whatever its process inherits, so it inherits only what a shell needs to work.
+_BASE_ENV_POSIX = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "TERM")
+_BASE_ENV_WINDOWS = (
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERNAME",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "OS",
+)
+
+
+def pi_environment(api_key: str, passthrough: list[str]) -> dict[str, str]:
+    """The environment the Pi runner starts with: a fixed base, the named extras, the model key.
+
+    This covers the environment only. Files the service can read (its `.env`, git
+    credentials) are still readable by the agent until each run has its own sandbox.
+    """
+    base = _BASE_ENV_WINDOWS if sys.platform == "win32" else _BASE_ENV_POSIX
+    env = {name: os.environ[name] for name in (*base, *passthrough) if name in os.environ}
+    env["PI_PROVIDER_API_KEY"] = api_key
+    return env
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill the runner and everything it started: node, the agent's bash, and what bash ran."""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, check=False)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)  # the runner leads its own process group
+    except OSError:
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
 def _run_streaming(
-    cmd: list[str], *, stdin_text: str, cwd: str, env: dict, timeout: int, on_event
+    cmd: list[str],
+    *,
+    stdin_text: str,
+    cwd: str,
+    env: dict,
+    timeout: int,
+    on_event,
+    stop: threading.Event | None = None,
 ) -> tuple[int, str, str]:
     """Run the Node runner, forwarding ``@@PI`` JSON lines from stderr as they arrive.
 
-    Returns (returncode, stdout, other_stderr). Kills the process on timeout.
+    Returns (returncode, stdout, other_stderr). On timeout, or when ``stop`` is set, kills
+    the whole process tree: the agent's bash may have started builds or servers of its own.
     """
     proc = subprocess.Popen(
         cmd,
@@ -33,6 +98,9 @@ def _run_streaming(
         encoding="utf-8",
         errors="replace",
         bufsize=1,
+        # Its own process group (session on POSIX), so the tree can be killed as one.
+        start_new_session=sys.platform != "win32",
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if sys.platform == "win32" else 0,
     )
     stdout_chunks: list[str] = []
     stderr_lines: list[str] = []
@@ -61,10 +129,13 @@ def _run_streaming(
 
     deadline = time.monotonic() + timeout
     while proc.poll() is None:
-        if time.monotonic() > deadline:
-            proc.kill()
+        stopped = stop is not None and stop.is_set()
+        if stopped or time.monotonic() > deadline:
+            _kill_tree(proc)
             for t in threads:
                 t.join(timeout=5)
+            if stopped:
+                raise RuntimeError("Pi SDK runner was stopped because its run was cancelled.")
             raise subprocess.TimeoutExpired(cmd, timeout)
         time.sleep(0.25)
     for t in threads:
@@ -92,6 +163,7 @@ class PiAgentExecutor:
         agent_dir: str,
         timeout_seconds: int,
         thinking_level: str = "medium",
+        env_passthrough: list[str] | None = None,
     ):
         self.model = model
         self.system_prompt = system_prompt
@@ -102,6 +174,7 @@ class PiAgentExecutor:
         self.agent_dir = agent_dir
         self.timeout_seconds = timeout_seconds
         self.thinking_level = thinking_level
+        self.env_passthrough = env_passthrough or []
         self._execution_context: dict | None = None
 
     async def run(self, issue: JiraIssue) -> AgentResult:
@@ -139,8 +212,10 @@ class PiAgentExecutor:
             "reviewFeedback": ctx.get("review_feedback") or "",
         }
 
-        env = os.environ.copy()
-        env["PI_PROVIDER_API_KEY"] = self.api_key
+        env = pi_environment(self.api_key, self.env_passthrough)
+        # Set when this coroutine is cancelled (shutdown): the worker thread cannot be
+        # cancelled, so it is told to kill the process tree and return.
+        stop = threading.Event()
 
         def on_event(event: dict) -> None:
             progress.add_event(issue.key, {"source": "pi", **event})
@@ -159,7 +234,11 @@ class PiAgentExecutor:
                 env=env,
                 timeout=self.timeout_seconds,
                 on_event=on_event,
+                stop=stop,
             )
+        except asyncio.CancelledError:
+            stop.set()
+            raise
         except FileNotFoundError as exc:
             raise RuntimeError(
                 f"Pi SDK runner command not found: {self.node_command}. "

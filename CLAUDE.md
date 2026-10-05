@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (61 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (64 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -175,7 +175,10 @@ registry survive.
 
 ### The Pi runner boundary
 
-`node/pi-sdk-runner.mjs` is the only place the Pi SDK is invoked. `pi_agent.py` spawns it with `node`, writes
+`node/pi-sdk-runner.mjs` is the only place the Pi SDK is invoked. The runner never inherits the service's
+environment: `pi_environment()` builds it from a fixed per-platform base, `PI_ENV_PASSTHROUGH` and the
+provider key, so adding a secret to `.env` never exposes it to the agent's bash. It runs in its own process
+group, and `_kill_tree` ends the whole tree on timeout and when the awaiting coroutine is cancelled. `pi_agent.py` spawns it with `node`, writes
 one JSON payload on stdin, and reads the `AgentResult` JSON from stdout; the runner streams live progress as
 `@@PI {json}` lines on **stderr**, which `_run_streaming` forwards into `progress`. Anything else on stderr is
 collected for the error message.

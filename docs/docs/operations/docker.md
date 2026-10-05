@@ -192,5 +192,6 @@ Two stages. The first builds the SPA with Node and emits `static/dist`. The seco
 ## Limits in containers
 
 - **Worktrees live in the container's volume.** Each run works in its own worktree under `RUNS_ROOT`, so concurrent runs on one repository do not interfere, but the worktrees are only visible to this `app` container; keep a single replica. A bind-mounted host clone will list these worktrees with container paths in `git worktree list` on the host; `git worktree prune` there is harmless once the runs have ended.
+- **The agent sees a minimal environment.** Variables from `.env` and the compose file, including `GIT_HTTPS_PASSWORD` and the Jira and Bitbucket tokens, are not passed to the Pi process. If the agent's `bash` needs a proxy or a tool home, name the variable in `PI_ENV_PASSTHROUGH`. The mounted `.env` file itself is still readable inside the container.
 - **Activity events are in-process.** Restarting `app` clears the live activity feed; the durable record is the checkpoint, so runs resume where they paused.
 - **No authentication on the UI.** Publish port 8000 only on a trusted network, or put a reverse proxy with authentication in front of it.

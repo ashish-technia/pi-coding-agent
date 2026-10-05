@@ -69,6 +69,7 @@ def make_pi_executor(stage: str) -> PiAgentExecutor:
         agent_dir=settings.pi_agent_dir,
         timeout_seconds=settings.pi_timeout_seconds,
         thinking_level=settings.pi_thinking_level,
+        env_passthrough=settings.pi_env_passthrough_names(),
     )
 
 
