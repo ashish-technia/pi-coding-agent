@@ -112,6 +112,8 @@ export type Pending =
       /** Working-tree diff per repo; repos with no changes are absent. */
       diffs: Record<string, string>
       review_feedback: string
+      /** Changed files the review did not see because the diff was over the size limit. */
+      review_omitted_files?: string[]
     }
   | {
       type: 'final_review'
@@ -120,6 +122,7 @@ export type Pending =
       diff_lines: number
       files_changed: string[]
       review_feedback: string
+      review_omitted_files?: string[]
       pr_enabled: boolean
       suggested_pr_title: string
       suggested_pr_description: string
@@ -215,7 +218,7 @@ export interface AppConfig {
     jira_comment_channel_enabled: boolean
     jira_trigger_label: string
   }
-  review: { max_iterations: number; rules_path: string; rules: string }
+  review: { max_iterations: number; max_diff_chars: number; rules_path: string; rules: string }
   persistence: { checkpointer: string; queue: string }
 }
 

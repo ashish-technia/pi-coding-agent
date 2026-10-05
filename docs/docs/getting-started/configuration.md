@@ -36,6 +36,7 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 ## Review
 
 - `REVIEW_MAX_ITERATIONS` — coding/review cycles allowed per phase.
+- `REVIEW_MAX_DIFF_CHARS` — largest diff, in characters, sent to the review model (default 200000; 0 = no limit). Above it whole files are left out, lockfiles and generated files first, and the phase and final gates say which.
 - `REVIEW_RULES_PATH` — Markdown with `Must` and `Should` sections; the reviewer rejects on any `Must` violation.
 
 ## Jira

@@ -86,10 +86,11 @@ def make_coding_agent(
 
         # Nothing is committed until pr_node, so each repo's worktree holds every
         # change made for this issue so far. Repos left untouched stay out of the map.
+        base_shas = state.get("base_shas") or {}
         diffs: dict[str, str] = {}
         for name, git_branch in git_clients.items():
             if git_branch.has_changes():
-                diffs[name] = git_branch.diff()
+                diffs[name] = git_branch.diff(base=base_shas.get(name) or "HEAD")
 
         return {
             "code_result": code_result,

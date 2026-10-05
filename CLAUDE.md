@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (45 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (48 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -176,7 +176,10 @@ produced, `validatePlan` rejects steps whose file does not exist or that the age
 and feeds the problems back for up to `PLAN_MAX_CORRECTIONS` rounds.
 
 The coding agent does not produce the diff; `git_client.GitBranchClient.diff()` reads the run's worktree of
-each selected repo after the agent runs. Nothing is committed until `pr_node`, so those worktrees
+each selected repo after the agent runs. It diffs the run's base commit against `snapshot()`, a tree built
+in a throwaway index, because `git diff HEAD` leaves out files the agent created. `cap_diffs()` in
+`review_agent.py` trims what the review model sees to `REVIEW_MAX_DIFF_CHARS` by whole files and records
+them in `review_omitted_files`, which the phase and final gates show. Nothing is committed until `pr_node`, so those worktrees
 still hold every phase's changes. The coding node creates the plan's branch on its first pass only, in
 every selected repo's worktree, and `pr_node` force-pushes it.
 

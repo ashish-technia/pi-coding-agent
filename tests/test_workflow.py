@@ -323,3 +323,35 @@ async def test_runs_beyond_the_cap_wait_for_a_slot(fakes, monkeypatch):
         assert len(fakes["runner"].calls) == 2
     finally:
         await svc.stop()
+
+
+async def test_new_file_reaches_the_review_prompt_and_the_final_gate(service, fakes):
+    key = _key()
+    status = await _to_final_gate(service, fakes, key)
+
+    diff = status["pending"]["diffs"]["web"]
+    assert "new file mode" in diff and "b/tests/test_client.py" in diff
+    assert f"+# {key} attempt" in diff.split("b/tests/test_client.py")[-1]
+    assert "b/tests/test_client.py" in fakes["llm"].last_prompts["review"]
+    # Taking the snapshot must not stage anything in the run's worktree.
+    assert git(runs_root() / key / "web", "diff", "--cached", "--name-only") == ""
+
+
+async def test_oversized_diff_is_reviewed_partially_and_the_gate_says_so(fakes, monkeypatch):
+    from pi_jira_agent.config import settings
+    from pi_jira_agent.service import AutomationService
+
+    monkeypatch.setattr(settings, "review_max_diff_chars", 250)
+    svc = AutomationService()
+    await svc.start()
+    try:
+        key = _key()
+        status = await _to_final_gate(svc, fakes, key)
+        omitted = status["pending"]["review_omitted_files"]
+        assert len(omitted) == 1, "one of the two changed files no longer fits"
+        prompt = fakes["llm"].last_prompts["review"]
+        assert "left out" in prompt and omitted[0] in prompt
+        assert f"b/{omitted[0]}" not in prompt
+        assert f"b/{omitted[0]}" in status["pending"]["diffs"]["web"], "the human still sees the whole diff"
+    finally:
+        await svc.stop()

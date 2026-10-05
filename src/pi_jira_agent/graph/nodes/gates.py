@@ -101,6 +101,7 @@ def phase_gate(state: GraphState) -> dict:
             "files_changed": code_result.files_changed if code_result else [],
             "diffs": diffs,
             "review_feedback": state.get("review_feedback", ""),
+            "review_omitted_files": state.get("review_omitted_files") or [],
         }
     )
     if decision.get("action") == "continue":
@@ -131,6 +132,7 @@ def make_await_final(*, pr_enabled: bool):
                 "diff_lines": sum(text.count("\n") for text in diffs.values()),
                 "files_changed": code_result.files_changed if code_result else [],
                 "review_feedback": state.get("review_feedback", ""),
+                "review_omitted_files": state.get("review_omitted_files") or [],
                 "pr_enabled": pr_enabled,
                 "suggested_pr_title": suggestion.pr_title if suggestion else "",
                 "suggested_pr_description": suggestion.pr_description if suggestion else "",

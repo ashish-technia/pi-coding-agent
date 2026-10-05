@@ -38,6 +38,7 @@ class GraphState(TypedDict, total=False):
     phase_diffs: list[dict[str, str]] # one snapshot of the above per accepted phase
     review_approved: bool
     review_feedback: str
+    review_omitted_files: list[str]   # changed files the last review did not see (diff over the limit)
     iteration: int                    # coding->review cycles within the current phase
     max_iterations: int               # from REVIEW_MAX_ITERATIONS
 

@@ -1,5 +1,6 @@
 import type { Decision, Pending } from '../api'
 import DiffViewer from './DiffViewer'
+import PartialReviewNote from './PartialReviewNote'
 
 type PhasePending = Extract<Pending, { type: 'phase_gate' }>
 
@@ -22,6 +23,7 @@ export default function PhaseGate({ pending, busy, onDecide }: { pending: PhaseP
           </span>
         ))}
       </p>
+      <PartialReviewNote files={pending.review_omitted_files} />
       <DiffViewer diffs={pending.diffs} />
       <div className="actions">
         <button className="success" disabled={busy} onClick={() => onDecide({ action: 'continue' })}>

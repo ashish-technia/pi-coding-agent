@@ -122,6 +122,15 @@ class Settings(BaseSettings):
         default=2,
         description="Max coding/review retry loops per phase before giving up.",
     )
+    review_max_diff_chars: int = Field(
+        default=200_000,
+        ge=0,
+        description=(
+            "Largest diff, in characters, sent to the review model. Above it whole files are "
+            "left out (lockfiles and generated files first) and named in the prompt and at "
+            "the gates. 0 disables the cap."
+        ),
+    )
     review_rules_path: str = Field(
         default="review-rules.md",
         description="Markdown file with the team's must-check review rules, fed to the review agent.",
@@ -406,6 +415,7 @@ class Settings(BaseSettings):
             },
             "review": {
                 "max_iterations": self.review_max_iterations,
+                "max_diff_chars": self.review_max_diff_chars,
                 "rules_path": self.review_rules_path,
                 "rules": self.review_rules(),
             },

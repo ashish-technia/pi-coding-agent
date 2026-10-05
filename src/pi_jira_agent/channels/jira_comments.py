@@ -15,6 +15,13 @@ from ..jira_client import JiraClient
 logger = logging.getLogger(__name__)
 
 
+def _partial_review_note(interrupt_value: dict) -> list[str]:
+    omitted = interrupt_value.get("review_omitted_files") or []
+    if not omitted:
+        return []
+    return [f"The review saw a partial diff. Not reviewed (too large): {', '.join(omitted)}"]
+
+
 def render_pending(interrupt_value: dict) -> str:
     kind = interrupt_value.get("type")
     if kind == "requirements_approval":
@@ -57,12 +64,14 @@ def render_pending(interrupt_value: dict) -> str:
             f"Phase {interrupt_value.get('phase_index', 0) + 1} of {interrupt_value.get('phases_total', 1)} "
             "is implemented and passed review.",
             f"Files changed so far: {', '.join(interrupt_value.get('files_changed', [])) or '-'}",
+            *_partial_review_note(interrupt_value),
         ]
     elif kind == "final_review":
         lines = [
             "All planned changes are implemented and passed review.",
             f"Files changed: {', '.join(interrupt_value.get('files_changed', [])) or '-'}",
             f"Diff size: {interrupt_value.get('diff_lines', 0)} lines (open the UI to inspect it).",
+            *_partial_review_note(interrupt_value),
         ]
         if not interrupt_value.get("pr_enabled", False):
             lines.append("Pull request creation is disabled in this environment; only /finish is available.")

@@ -94,7 +94,8 @@ export default function SettingsPage() {
         <h2>Review rules</h2>
         <p className="muted small">
           Read from <code>{cfg.review.rules_path}</code> on every review. Max coding/review iterations per phase:{' '}
-          {cfg.review.max_iterations}.
+          {cfg.review.max_iterations}. Largest diff sent to the reviewer:{' '}
+          {cfg.review.max_diff_chars ? `${cfg.review.max_diff_chars} characters` : 'no limit'}.
         </p>
         {cfg.review.rules ? (
           <pre className="small">{cfg.review.rules}</pre>

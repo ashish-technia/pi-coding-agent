@@ -1,4 +1,5 @@
 import logging
+import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -27,6 +28,66 @@ _SYSTEM_PROMPT = (
     "together: a call added in one repo must match the signature defined in another, and a "
     "symbol that looks undefined may simply live in a sibling repo's diff."
 )
+
+
+# Dropped first when a diff is over the limit: nobody reviews these line by line.
+_LOW_VALUE_NAMES = {
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "Cargo.lock",
+    "go.sum",
+    "composer.lock",
+    "Gemfile.lock",
+}
+_LOW_VALUE_SUFFIXES = (".lock", ".min.js", ".min.css", ".map", ".snap")
+_FILE_HEADER = re.compile(r"(?m)^(?=diff --git )")
+_HEADER_PATH = re.compile(r"^diff --git a/.* b/(.*)$", re.MULTILINE)
+
+
+def cap_diffs(diffs: dict[str, str], max_chars: int) -> tuple[dict[str, str], list[str]]:
+    """Trim ``diffs`` to ``max_chars`` by leaving out whole files; returns (diffs, omitted files).
+
+    A hunk cut in half reads like a broken change, so files go whole: lockfiles and
+    generated files first, then the largest remaining ones. ``max_chars <= 0`` disables the cap.
+    """
+    if max_chars <= 0 or sum(len(text) for text in diffs.values()) <= max_chars:
+        return diffs, []
+
+    qualify = len(diffs) > 1
+    chunks: list[dict] = []
+    for repo, text in diffs.items():
+        for chunk in _FILE_HEADER.split(text):
+            if not chunk:
+                continue
+            match = _HEADER_PATH.search(chunk)
+            path = match.group(1).strip() if match else "(unknown file)"
+            name = path.rsplit("/", 1)[-1]
+            chunks.append(
+                {
+                    "repo": repo,
+                    "label": f"{repo}/{path}" if qualify else path,
+                    "text": chunk,
+                    "low_value": name in _LOW_VALUE_NAMES or name.endswith(_LOW_VALUE_SUFFIXES),
+                    "keep": True,
+                }
+            )
+
+    total = sum(len(c["text"]) for c in chunks)
+    for chunk in sorted(chunks, key=lambda c: (not c["low_value"], -len(c["text"]))):
+        if total <= max_chars:
+            break
+        chunk["keep"] = False
+        total -= len(chunk["text"])
+
+    kept: dict[str, str] = {}
+    for chunk in chunks:
+        if chunk["keep"]:
+            kept[chunk["repo"]] = kept.get(chunk["repo"], "") + chunk["text"]
+    return kept, [c["label"] for c in chunks if not c["keep"]]
 
 
 def _render_diffs(diffs: dict[str, str]) -> str:
@@ -59,6 +120,7 @@ def _build_review_prompt(
     rules: str,
     iteration: int,
     previous_feedback: str,
+    omitted_files: list[str] | None = None,
 ) -> str:
     parts = [f"Jira issue: {issue.key} - {issue.summary}"]
     if requirements:
@@ -94,17 +156,25 @@ def _build_review_prompt(
             f"This is retry attempt {iteration}. Previous review feedback that must be addressed:",
             f"  {previous_feedback}",
         ]
+    if omitted_files:
+        parts += [
+            "",
+            "The diff is over the size limit, so these changed files were left out and you cannot see them:",
+            *[f"  - {name}" for name in omitted_files],
+            "Review what is shown. Do not reject because the content of a left-out file is missing; "
+            "say in your comments that those files were not reviewed.",
+        ]
     parts.append("\n" + _render_diffs(diffs))
     return "\n".join(parts)
 
 
-def make_review_agent(llm, *, review_rules: str = "") -> ReviewNode:
+def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -> ReviewNode:
     structured_llm = llm.with_structured_output(ReviewVerdict)
 
     async def review_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         progress.mark(issue.key, "review_agent")
-        diffs = state.get("diffs") or {}
+        diffs, omitted_files = cap_diffs(state.get("diffs") or {}, max_diff_chars)
         iteration = state.get("iteration", 0)
         previous_feedback = state.get("review_feedback", "")
         plan = state.get("plan_result")
@@ -119,7 +189,8 @@ def make_review_agent(llm, *, review_rules: str = "") -> ReviewNode:
                 "source": "llm",
                 "ev": "llm_call",
                 "stage": "review",
-                "text": f"reviewing {diff_lines}-line diff{scope} (attempt {iteration})",
+                "text": f"reviewing {diff_lines}-line diff{scope} (attempt {iteration})"
+                + (f", {len(omitted_files)} file(s) left out as too large" if omitted_files else ""),
             },
         )
         verdict: ReviewVerdict = await structured_llm.ainvoke(
@@ -134,6 +205,7 @@ def make_review_agent(llm, *, review_rules: str = "") -> ReviewNode:
                         rules=review_rules,
                         iteration=iteration,
                         previous_feedback=previous_feedback,
+                        omitted_files=omitted_files,
                     )
                 ),
             ]
@@ -162,6 +234,7 @@ def make_review_agent(llm, *, review_rules: str = "") -> ReviewNode:
         return {
             "review_approved": verdict.approved and not verdict.must_violations,
             "review_feedback": feedback,
+            "review_omitted_files": omitted_files,
             "current_node": "review_agent",
         }
 
