@@ -59,7 +59,7 @@ Open http://localhost:8000. Use `python -m pi_jira_agent` rather than bare `uvic
 Everything is in `.env` (see `.env.example`). The important groups:
 
 - **Per-stage models:** `REQUIREMENTS_*`, `PLANNING_*`, `CODING_*`, `REVIEW_*` (`_MODEL_PROVIDER`, `_MODEL`, `_API_KEY`). Planning and coding fall back to `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY`.
-- **Repositories:** `REPOS_CONFIG_PATH` points at `repos.json`, the list of clones a run may work in (copy `repos.example.json`); `REPO_LOCAL_PATH` is the single-clone fallback when that file is absent. Plus `BITBUCKET_*` and `PREPARE_BRANCH_BEFORE_PR`.
+- **Repositories:** `REPOS_CONFIG_PATH` points at `repos.json`, the list of clones a run may work in (copy `repos.example.json`); `REPO_LOCAL_PATH` is the single-clone fallback when that file is absent. Each run works in its own git worktree under `RUNS_ROOT` (default `data/runs`); the clones are only fetched. Plus `BITBUCKET_*`.
 - **Review rules:** `REVIEW_RULES_PATH` points at a Markdown file of must-check items (default `review-rules.md`).
 - **Side effects:** `PR_CREATION_ENABLED` gates commit/push/PR; `JIRA_COMMENTS_ENABLED` gates status comments.
 - **Persistence:** `DATABASE_URL` (Postgres) or the SQLite fallback; `REDIS_URL` for the queue.
@@ -110,7 +110,7 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-scripts/check.sh all                        # lint, types, 39 tests, frontend and docs builds, as CI runs them
+scripts/check.sh all                        # lint, types, 45 tests, frontend and docs builds, as CI runs them
 scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site

@@ -100,7 +100,7 @@ check_repo() {
 }
 
 # Clone whatever repos.json lists and is not on disk yet, then report each one.
-# Only for `serve`: the demo fakes every external system and must not touch git, and
+# Only for `serve`: the demo works on throwaway repositories it creates itself, and
 # an interactive shell should not start cloning either.
 setup_repos() {
   if [ -f "$REPOS_CONFIG" ]; then

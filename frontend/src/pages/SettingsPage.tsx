@@ -36,6 +36,8 @@ export default function SettingsPage() {
             <dd>{cfg.pi.thinking_level}</dd>
             <dt>Pi timeout</dt>
             <dd>{cfg.pi.timeout_seconds} s</dd>
+            <dt>Concurrent agent sessions</dt>
+            <dd>{cfg.pi.max_concurrent_runs}</dd>
             <dt>Agent context dir</dt>
             <dd className="mono">{cfg.pi.agent_dir}</dd>
           </dl>
@@ -64,8 +66,8 @@ export default function SettingsPage() {
             <dd className="mono">{cfg.repo.config_path}</dd>
             <dt>Default target branch</dt>
             <dd>{cfg.repo.target_branch}</dd>
-            <dt>Branch prep</dt>
-            <dd>{cfg.repo.prepare_branch_before_pr ? 'on' : 'off'}</dd>
+            <dt>Run worktrees</dt>
+            <dd className="mono">{cfg.repo.runs_root}</dd>
             <dt>PR creation</dt>
             <dd>{cfg.delivery.pr_creation_enabled ? 'enabled' : 'disabled (review only)'}</dd>
             <dt>Bitbucket</dt>

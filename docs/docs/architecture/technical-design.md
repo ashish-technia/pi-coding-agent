@@ -113,7 +113,7 @@ flowchart LR
   subgraph host["Host (dev laptop or a VM)"]
     uv["python -m pi_jira_agent<br/>uvicorn, selector loop"]
     node["node pi-sdk-runner.mjs<br/>spawned per plan/code call"]
-    clone[("REPO_LOCAL_PATH<br/>git working tree")]
+    clone[("RUNS_ROOT<br/>one git worktree per run")]
     uv -- "stdin JSON / stdout JSON / stderr events" --> node
     node -- "read · grep · find · ls<br/>(+ bash · edit · write in execute mode)" --> clone
     uv -- "git fetch/checkout/diff/commit/push" --> clone
@@ -129,7 +129,7 @@ flowchart LR
 - **Windows note.** psycopg's async driver requires the selector event loop; `pi_jira_agent/eventloop.py` supplies it to uvicorn through `--loop pi_jira_agent.eventloop:loop_factory`, which `python -m pi_jira_agent` sets automatically.
 - **Frontend.** Built once (`npm run build`) into `src/pi_jira_agent/static/dist` and served by FastAPI; `/assets/*` is resolved per request so a rebuild needs no restart. In development, Vite on `:5173` proxies `/api` to the backend.
 - **Containers.** `docker compose up -d --build` runs the same topology as three services: `app` (Python + Node + git + the built SPA), `postgres` and `redis`. The target repository is bind-mounted at `/workspace/repo` rather than baked into the image, and compose overrides only the container-internal settings (paths, service hostnames) on top of the shared `.env`. See [Docker deployment](../operations/docker).
-- **Scaling path.** With Postgres and Redis, several API/worker processes can share the queue and checkpoints. The one shared resource that still serialises work is the git working tree (see §11).
+- **Scaling path.** With Postgres and Redis, several API/worker processes can share the queue and checkpoints. Each run has its own git worktree, so the remaining single-process limits are the in-memory task map and progress buffer (see §11).
 
 ## 5. Module map
 
@@ -147,7 +147,8 @@ src/pi_jira_agent/
 ├── pi_agent.py        PiAgentExecutor: payload, streaming subprocess, event forwarding
 ├── jira_client.py     get_issue (fields+comments), add_comment (ADF), transition_issue
 ├── bitbucket_client.py create_pull_request
-├── git_client.py      prepare_branch, has_changes, diff, commit_all, push_branch
+├── git_client.py      worktrees, create_branch, has_changes, diff, commit_all, push_branch
+├── workspace.py       RunWorkspaces: one worktree per run and repo under RUNS_ROOT
 ├── channels/jira_comments.py  render_pending, JiraCommentChannel
 └── graph/
     ├── build.py       build_graph(), make_checkpointer(), make_serde(), make_pi_executor(stage)
@@ -155,9 +156,11 @@ src/pi_jira_agent/
     ├── decisions.py   decision models, parse_decision, parse_comment_command, command_help
     ├── orchestrator.py route_after_* functions
     ├── progress.py    mark/get/clear, add_event/events, NODE_LABELS, STAGE_OF_NODE
+    ├── slots.py       PiSlots: caps concurrent Pi sessions (MAX_CONCURRENT_RUNS)
     └── nodes/
         ├── fetch_issue.py       Jira fetch (or inline issue)
         ├── requirements_agent.py make_requirements_agent, make_scope_check
+        ├── workspace.py         prepare_workspace: fetch, create the run's worktrees
         ├── planning_agent.py    Pi plan mode (first plan or refinement)
         ├── coding_agent.py      Pi execute mode per phase; phase_plan()
         ├── review_agent.py      structured verdict with review rules
@@ -229,7 +232,7 @@ sequenceDiagram
   G->>G: state.requirements = edited, status = planning
   G->>G: route_after_requirements_gate → scope_check
   alt edited == original or acknowledged
-    G->>G: scope_check returns empty findings → planning_agent
+    G->>G: scope_check returns empty findings → prepare_workspace → planning_agent
   else edited
     G->>M: compare original vs edited against the issue
     M-->>G: ScopeCheck{findings}
@@ -299,7 +302,7 @@ flowchart TD
   fin -- "finish" --> e((end))
 ```
 
-`diffs` maps each selected repository to its cumulative working-tree diff against the branch base (`git diff HEAD`), so the reviewer sees everything done so far in every repository; `phase_diffs` snapshots the whole map after each accepted phase. Nothing is committed before `pr_node`, which is what keeps those working trees complete.
+`diffs` maps each selected repository to the cumulative diff of the run's worktree against the branch base (`git diff HEAD`), so the reviewer sees everything done so far in every repository; `phase_diffs` snapshots the whole map after each accepted phase. Nothing is committed before `pr_node`, which is what keeps those worktrees complete.
 
 ### 6.5 Flow 2: Jira comment round trip
 
@@ -341,7 +344,7 @@ The graph never knows which channel it is on except through `state.channel`, whi
 
 | Group | Fields |
 |---|---|
-| input | `issue_key`, `issue`, `channel`, `repos` |
+| input | `issue_key`, `issue`, `channel`, `repos`, `base_shas` |
 | requirements | `requirements_original`, `requirements`, `requirements_notes`, `scope_check`, `scope_acknowledged` |
 | plan | `plan_result`, `plan_notes`, `execution_mode`, `phase_index`, `phases_total` |
 | code/review | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` |
@@ -358,7 +361,7 @@ Pydantic objects inside the state (`JiraIssue`, `RequirementsSpec`, `AgentResult
 | Run list (key, summary, status, channel, timestamps) | `runs` table (same DB) | yes | yes with Postgres |
 | Queued jobs | Redis list / asyncio.Queue | yes with Redis | yes with Redis |
 | Running-task map, current node + start time, activity events | process memory (`service._tasks`, `graph/progress.py`) | no | no |
-| Code changes | git working tree of each repo in `repos.json` | yes | one clone per host |
+| Code changes | the run's git worktrees under `RUNS_ROOT` | yes, when `RUNS_ROOT` is on a volume | no: a worktree lives on one host |
 
 Consequences: after a restart the UI can still show *where* a run is (from `current_node` and the pending interrupt) but not the live activity of a stage that was interrupted. A stage that was mid-flight when the process died shows as the next node to run with no error; `start_run` for that key auto-resumes it.
 
@@ -445,7 +448,7 @@ something nobody attached.
 
 - **Per-stage models** are resolved by `stage_model(stage)` with explicit fallbacks (`PLANNING_*`/`CODING_*` → `PI_*`; `REQUIREMENTS_*` → `REVIEW_*`). `build_graph` creates one `PiAgentExecutor` for planning and one for coding, so they can differ.
 - **Validators fail fast**: malformed `DATABASE_URL`, `REDIS_URL`, `JIRA_BASE_URL` (must be the site root), or `PI_THINKING_LEVEL` abort startup with an actionable message rather than a distant stack trace.
-- **Side-effect gates** are explicit booleans: `PREPARE_BRANCH_BEFORE_PR`, `PR_CREATION_ENABLED` (alias `CREATE_PR`), `JIRA_COMMENTS_ENABLED`, `JIRA_COMMENT_CHANNEL_ENABLED`.
+- **Side-effect gates** are explicit booleans: `PR_CREATION_ENABLED` (alias `CREATE_PR`), `JIRA_COMMENTS_ENABLED`, `JIRA_COMMENT_CHANNEL_ENABLED`.
 - **`public_view()`** feeds the Settings page and never includes keys or tokens.
 
 ## 11. Error handling, recovery and limits
@@ -461,7 +464,7 @@ something nobody attached.
 
 Known limits (by design, for now):
 
-- **One git working tree per host.** Two runs against the same repository would interfere during coding. Keep `USE_QUEUE=true` with a single worker per repository until per-run worktrees exist.
+- **Worktrees are local to one host.** A run's uncommitted work lives in its worktree under `RUNS_ROOT`, so the worker that resumes a run must see the same directory. Run a single worker until the Postgres job queue (R-23) exists.
 - **Activity is in-memory.** Live events are lost on restart; the durable record is the checkpoint.
 - **Classic `/webhooks/jira`** accepts the full payload but does not verify Jira's HMAC signature; the Automation endpoints rely on the shared secret header.
 - **Requirements editing from Jira** is limited to `/revise <notes>`.

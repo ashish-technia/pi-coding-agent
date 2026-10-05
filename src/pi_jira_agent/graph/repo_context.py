@@ -1,8 +1,9 @@
 """Turning a run's repo selection into the things the nodes need.
 
 A run stores only repo *names* in ``GraphState`` (checkpoints stay small and stable
-across config edits). The registry of `RepoConfig` objects, and the git/Bitbucket
-clients keyed by name, are built once in ``build.py`` and closed over by the nodes.
+across config edits). The registry of `RepoConfig` objects and the Bitbucket clients
+keyed by name are built once in ``build.py`` and closed over by the nodes; the git
+client for a run's worktree comes from ``workspace.RunWorkspaces``.
 """
 
 from __future__ import annotations
@@ -25,15 +26,6 @@ def selected_repos(repo_map: RepoMap, state: GraphState) -> list[RepoConfig]:
     if chosen:
         return chosen
     return list(repo_map.values())[:1]
-
-
-def repo_roots_payload(repos: list[RepoConfig]) -> list[dict]:
-    """The `repoRoots` block handed to the Pi runner.
-
-    Pi resolves absolute paths as given, so listing the roots is all it takes to let
-    one agent session read and edit several checkouts.
-    """
-    return [{"name": r.name, "path": r.path, "properties": r.properties} for r in repos if r.path.strip()]
 
 
 def describe(repos: list[RepoConfig]) -> str:

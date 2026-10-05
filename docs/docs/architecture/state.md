@@ -16,6 +16,7 @@ class GraphState(TypedDict, total=False):
     issue: JiraIssue                  # fetched (or supplied inline)
     channel: Channel                  # "ui" | "jira" - where pauses are announced
     repos: list[str]                  # repo names this run works in; [0] is the primary
+    base_shas: dict[str, str]         # repo name -> commit the run's worktree was created from
 
     # Requirements stage
     requirements_original: RequirementsSpec   # the agent's framing, kept for comparison

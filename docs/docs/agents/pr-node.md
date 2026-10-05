@@ -10,19 +10,24 @@ title: PR Node
 Runs only after the human chose **Create pull request** at the final gate and
 `PR_CREATION_ENABLED=true`.
 
-It loops over the run's selected repositories, in `repos.json` order, and for each one:
+It loops over the run's selected repositories, in `repos.json` order, and in each one's worktree:
 
 1. `git add -A && git commit` with the coding agent's commit message (skipped if the tree is clean).
-2. `git push -u <remote> <branch>` for the plan's branch name — the **same name in every repo**.
+2. `git push --force -u <remote> <branch>` for the plan's branch name — the **same name in every repo**.
+   A run always starts from the target branch, so a branch an earlier run of the same issue left on
+   the remote is overwritten, including any commits someone else pushed to it.
 3. `POST /2.0/repositories/{workspace}/{repo}/pullrequests` on Bitbucket, using that repository's
    own `bitbucket_repo_slug` and `target_branch`, with the **human-supplied title** (`pr_title`
    from the decision) and the description (edited in the dialog, else the coding agent's).
 
-A repository with a clean tree that is also not ahead of its target branch is **skipped**, so a
+A repository with a clean tree that also has no commits on top of the commit its worktree was
+created from (`base_shas` in state) is **skipped**, so a
 repo the agent never touched does not get an empty pull request.
 
 The result sets `pr_urls` (`{repo name: URL}`) and `status = done`. Choosing **Finish without a
-PR** ends the run with the changes left in the local clones.
+PR** ends the run and discards the changes; the last diff stays in the checkpoint.
+
+Either way the run's worktrees and its local branch are removed once the run has ended.
 
 ## Multi-repo pull requests
 

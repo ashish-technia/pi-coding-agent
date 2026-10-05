@@ -371,6 +371,8 @@ function buildExecutePrompt(issue, systemPrompt, modelId, branchName, plan, requ
       : null,
     "After editing, run the verification steps that can run here (tests, linters, imports) with",
     "the bash tool and fix what they surface. Do not run git commit, git push or git checkout.",
+    "This is a fresh checkout: dependencies are not installed. Do not install them; skip the",
+    "checks that need them.",
     multi
       ? "The bash tool always starts in the primary repo; `cd` to another repository's absolute path first to verify it."
       : null,

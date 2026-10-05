@@ -25,7 +25,7 @@ def route_after_requirements_gate(state: GraphState) -> str:
 def route_after_scope_check(state: GraphState) -> str:
     if state.get("status") == "pending_requirements":
         return _log(state, "scope_check", "await_requirements")
-    return _log(state, "scope_check", "planning_agent")
+    return _log(state, "scope_check", "prepare_workspace")
 
 
 def route_after_plan_gate(state: GraphState) -> str:

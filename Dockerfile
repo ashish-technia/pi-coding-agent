@@ -86,7 +86,8 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 # Built SPA, served by FastAPI from src/pi_jira_agent/static/dist.
 COPY --from=frontend /build/src/pi_jira_agent/static/dist ./src/pi_jira_agent/static/dist
 
-# /app/data holds the SQLite checkpoint when DATABASE_URL is unset; /workspace holds the
+# /app/data holds each run's worktrees (and the SQLite checkpoint when DATABASE_URL is
+# unset); /workspace holds the
 # repositories - cloned to /workspace/<name> by the entrypoint, or bind-mounted there.
 # Both are created owned by app so a fresh named volume inherits that ownership.
 RUN mkdir -p /app/data /workspace/repo \
@@ -100,6 +101,7 @@ ENV REPO_LOCAL_PATH=/workspace/repo \
     REPOS_CONFIG_PATH=/app/repos.json \
     REPOS_ROOT=/workspace \
     GRAPH_CHECKPOINT_DB=/app/data/graph_checkpoints.sqlite \
+    RUNS_ROOT=/app/data/runs \
     PI_NODE_COMMAND=node \
     PI_RUNNER_SCRIPT=node/pi-sdk-runner.mjs \
     PI_AGENT_DIR=.pi-agent \

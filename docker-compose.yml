@@ -27,6 +27,9 @@ services:
       # that file are ignored here and one repos.json works on the host and in Docker.
       REPOS_ROOT: ${REPOS_ROOT:-/workspace}
       GRAPH_CHECKPOINT_DB: /app/data/graph_checkpoints.sqlite
+      # Per-run git worktrees, on the pijira_data volume so work waiting at a gate
+      # survives a restart.
+      RUNS_ROOT: /app/data/runs
       REVIEW_RULES_PATH: /app/review-rules.md
       # Service hostnames on the compose network. Set DATABASE_URL/REDIS_URL to ""
       # here to fall back to SQLite and the in-memory queue.
@@ -53,7 +56,7 @@ services:
       # - C:/projects/technia/waas-server:/workspace/WAAS-SERVER
       # Single-repository setup only (no repos.json): the host clone to work in.
       - ${TARGET_REPO_PATH:-./docker/placeholder-repo}:/workspace/repo
-      # SQLite checkpoints when DATABASE_URL is empty; harmless otherwise.
+      # Per-run worktrees, plus SQLite checkpoints when DATABASE_URL is empty.
       - pijira_data:/app/data
       # Editable without rebuilding the image.
       - ./review-rules.md:/app/review-rules.md:ro

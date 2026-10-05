@@ -132,6 +132,7 @@ Editing `.env` requires `docker compose up -d app` to take effect. `review-rules
 | `TARGET_REPO_PATH` | host path to the clone for a single-repository setup, mounted at `/workspace/repo`. Not needed when `repos.json` exists |
 | `REPOS_CONFIG_PATH` | container path to the repository list (default `/app/repos.json`) |
 | `REPOS_ROOT` | where clones live (default `/workspace`); makes the host paths in `repos.json` irrelevant in the container |
+| `RUNS_ROOT` | where each run's git worktrees live (default `/app/data/runs`, on the `pijira_data` volume) |
 | `APP_PORT`, `POSTGRES_PORT`, `REDIS_PORT` | host ports |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | commit identity for the agent's commits |
 | `GIT_AUTOCRLF` | line-ending handling, see above |
@@ -186,10 +187,10 @@ Two stages. The first builds the SPA with Node and emits `static/dist`. The seco
 - **Non-root**: runs as `app` (uid 1000), which matches the first user on most Linux hosts so a bind-mounted repository stays writable. On a host with a different uid, uncomment `user:` in compose.
 - **tini as PID 1**: reaps the Pi child process and passes SIGTERM to uvicorn.
 - **Healthcheck**: polls `/health`; compose reports the container healthy only once the API answers.
-- **Volumes**: `pijira_data` holds the SQLite checkpoint when Postgres is disabled, `pijira_pgdata` holds Postgres.
+- **Volumes**: `pijira_data` holds each run's git worktrees and the SQLite checkpoint when Postgres is disabled, `pijira_pgdata` holds Postgres.
 
 ## Limits in containers
 
-- **One working tree.** Concurrent runs against the same mounted clone would interfere. Keep a single `app` replica per repository until per-run worktrees exist.
+- **Worktrees live in the container's volume.** Each run works in its own worktree under `RUNS_ROOT`, so concurrent runs on one repository do not interfere, but the worktrees are only visible to this `app` container; keep a single replica. A bind-mounted host clone will list these worktrees with container paths in `git worktree list` on the host; `git worktree prune` there is harmless once the runs have ended.
 - **Activity events are in-process.** Restarting `app` clears the live activity feed; the durable record is the checkpoint, so runs resume where they paused.
 - **No authentication on the UI.** Publish port 8000 only on a trusted network, or put a reverse proxy with authentication in front of it.

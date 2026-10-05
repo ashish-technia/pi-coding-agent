@@ -23,6 +23,7 @@ NODE_LABELS = {
     "requirements_agent": "Framing requirements",
     "await_requirements": "Awaiting requirements approval",
     "scope_check": "Checking scope of your edits",
+    "prepare_workspace": "Preparing the worktree",
     "planning_agent": "Planning (reading the code)",
     "await_plan": "Awaiting plan approval",
     "coding_agent": "Coding",
@@ -40,6 +41,7 @@ STAGE_OF_NODE = {
     "requirements_agent": "requirements",
     "await_requirements": "requirements",
     "scope_check": "requirements",
+    "prepare_workspace": "plan",
     "planning_agent": "plan",
     "await_plan": "plan",
     "coding_agent": "code",
@@ -52,13 +54,14 @@ STAGE_OF_NODE = {
 }
 
 
-def mark(issue_key: str, node: str) -> None:
+def mark(issue_key: str, node: str, *, label: str | None = None) -> None:
+    label = label or NODE_LABELS.get(node, node)
     _progress[issue_key] = {
         "node": node,
-        "label": NODE_LABELS.get(node, node),
+        "label": label,
         "since": time.time(),
     }
-    add_event(issue_key, {"ev": "node", "node": node, "label": NODE_LABELS.get(node, node)})
+    add_event(issue_key, {"ev": "node", "node": node, "label": label})
 
 
 def get(issue_key: str) -> dict | None:

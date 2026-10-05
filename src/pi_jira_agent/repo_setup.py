@@ -21,7 +21,7 @@ from .models import RepoConfig
 logger = logging.getLogger(__name__)
 
 # Full clones: the agents branch off the target branch and diff against it, so the
-# history has to be there. A shallow clone would break `prepare_branch`.
+# history has to be there. A shallow clone would break the per-run worktrees.
 _CLONE_TIMEOUT_SECONDS = 900
 
 
@@ -56,7 +56,7 @@ def ensure_repo(repo: RepoConfig) -> tuple[str, str]:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     # Try the configured branch first so the clone lands where the agents expect;
-    # a repo whose default branch differs is still usable, prepare_branch fetches.
+    # a repo whose default branch differs is still usable, each run fetches first.
     attempts: list[list[str]] = []
     if repo.target_branch.strip():
         attempts.append(["git", "clone", "--branch", repo.target_branch, repo.clone_url, str(path)])

@@ -18,7 +18,7 @@ All settings come from environment variables or `.env` (see `.env.example`). The
 
 Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`). Pi providers: anything Pi's registry supports (OpenAI, Anthropic, Google, Bedrock, Azure, OpenAI-compatible).
 
-`PI_THINKING_LEVEL` (`off` … `xhigh`) applies to planning and coding; `PI_TIMEOUT_SECONDS` (default 600) bounds one Pi call.
+`PI_THINKING_LEVEL` (`off` … `xhigh`) applies to planning and coding; `PI_TIMEOUT_SECONDS` (default 600) bounds one Pi call. `MAX_CONCURRENT_RUNS` (default 2) caps how many Pi sessions run at once across all runs: a run waiting at a gate holds no slot, and a run that finds every slot taken waits with the label *Waiting for a free agent slot*.
 
 ## Repository and delivery
 
@@ -29,7 +29,7 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 | `BITBUCKET_HOST` | git host used to derive a clone URL when a repo has no `clone_url` (default `bitbucket.org`) |
 | `REPO_LOCAL_PATH` | local clone the agents plan against and edit, used when `repos.json` is absent |
 | `GIT_REMOTE_NAME`, `BITBUCKET_TARGET_BRANCH` | remote and base branch |
-| `PREPARE_BRANCH_BEFORE_PR` | fetch, fast-forward the base and `checkout -B` the plan's branch before coding |
+| `RUNS_ROOT` | where each run's git worktrees live, as `<root>/<issue key>/<repo name>` (default `data/runs`). They hold uncommitted work while a run waits at a gate, so keep it on storage that survives restarts |
 | `PR_CREATION_ENABLED` | show *Create PR* and allow commit/push/PR (`CREATE_PR` is accepted as an alias) |
 | `BITBUCKET_BASE_URL`, `BITBUCKET_WORKSPACE`, `BITBUCKET_REPO_SLUG`, `BITBUCKET_TOKEN` or `BITBUCKET_USERNAME` + `BITBUCKET_APP_PASSWORD` | Bitbucket Cloud API. `BITBUCKET_REPO_SLUG` and `BITBUCKET_TARGET_BRANCH` are per-repo defaults that `repos.json` can override |
 

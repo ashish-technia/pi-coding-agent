@@ -2,9 +2,10 @@
 
     python scripts/demo_server.py            # http://localhost:8090
 
-The Pi runner, LLMs, Jira, git and Bitbucket are replaced by the same fakes the test
-suite uses, so a full run (requirements -> plan -> phases -> review -> PR) completes in
-seconds without credentials or model calls. Review rejects the first attempt of each
+The Pi runner, LLMs, Jira and Bitbucket are replaced by the same fakes the test suite
+uses, and git runs for real against throwaway repositories in a temp directory, so a
+full run (requirements -> plan -> phases -> review -> PR) completes in seconds without
+credentials or model calls. Review rejects the first attempt of each
 phase once, so the retry loop is visible too.
 """
 

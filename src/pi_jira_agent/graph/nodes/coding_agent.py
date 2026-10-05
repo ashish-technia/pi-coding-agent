@@ -3,8 +3,10 @@ import logging
 from ...git_client import GitBranchClient
 from ...models import AgentResult, JiraIssue
 from ...pi_agent import PiAgentExecutor
+from ...workspace import RunWorkspaces
 from .. import progress
-from ..repo_context import RepoMap, describe, repo_roots_payload, selected_repos
+from ..repo_context import RepoMap, describe, selected_repos
+from ..slots import PiSlots
 from ..state import AsyncNode, GraphState
 
 logger = logging.getLogger(__name__)
@@ -34,14 +36,11 @@ def phase_plan(plan: AgentResult, mode: str, phase_index: int) -> AgentResult:
 
 
 def make_coding_agent(
-    pi_agent: PiAgentExecutor,
-    repo_map: RepoMap,
-    git_clients: dict[str, GitBranchClient],
-    *,
-    prepare_branch_before_pr: bool,
+    pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces, slots: PiSlots
 ) -> CodingNode:
     async def coding_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
+        key = state["issue_key"]
         progress.mark(issue.key, "coding_agent")
         plan_result: AgentResult = state["plan_result"]
         mode = state.get("execution_mode", "all")
@@ -49,28 +48,17 @@ def make_coding_agent(
         iteration = state.get("iteration", 0)
         review_feedback = state.get("review_feedback", "")
         repos = selected_repos(repo_map, state)
+        git_clients: dict[str, GitBranchClient] = {
+            repo.name: workspaces.git(key, repo.name) for repo in repos if repo.path.strip()
+        }
 
         first_pass = phase_index == 0 and iteration == 0
-        if prepare_branch_before_pr and first_pass:
-            # The same branch name in every repo, so a multi-repo change is one name.
-            for repo in repos:
-                git_branch = git_clients.get(repo.name)
-                if not git_branch:
-                    raise RuntimeError(
-                        f"Branch preparation is enabled but repo {repo.name!r} has no local path configured."
-                    )
-                logger.info(
-                    "Preparing source branch %s from %s in repo %s for issue %s",
-                    plan_result.branch_name,
-                    repo.target_branch,
-                    repo.name,
-                    issue.key,
-                )
-                git_branch.prepare_branch(
-                    target_branch=repo.target_branch,
-                    source_branch=plan_result.branch_name,
-                    push=False,
-                )
+        if first_pass:
+            # The worktree was created detached, before the plan named a branch. The same
+            # branch name in every repo, so a multi-repo change is one name.
+            for name, git_branch in git_clients.items():
+                logger.info("Creating branch %s in repo %s for issue %s", plan_result.branch_name, name, issue.key)
+                git_branch.create_branch(plan_result.branch_name)
 
         work_order = phase_plan(plan_result, mode, phase_index)
         logger.info(
@@ -83,25 +71,25 @@ def make_coding_agent(
             iteration,
             len(work_order.plan_steps),
         )
-        code_result: AgentResult = await pi_agent.run_with_mode(
-            issue,
-            repo_cwd=(repos[0].path if repos else "") or ".",
-            repo_roots=repo_roots_payload(repos),
-            execute_changes=True,
-            branch_name=plan_result.branch_name,
-            plan=work_order,
-            requirements=state.get("requirements"),
-            review_feedback=review_feedback if iteration > 0 else "",
-        )
+        async with slots.hold(issue.key, "coding_agent"):
+            code_result: AgentResult = await pi_agent.run_with_mode(
+                issue,
+                repo_cwd=workspaces.cwd(key, repos),
+                repo_roots=workspaces.roots_payload(key, repos),
+                execute_changes=True,
+                branch_name=plan_result.branch_name,
+                plan=work_order,
+                requirements=state.get("requirements"),
+                review_feedback=review_feedback if iteration > 0 else "",
+            )
         logger.info("Coding agent completed for issue %s", issue.key)
 
-        # Nothing is committed until pr_node, so each repo's working tree holds every
+        # Nothing is committed until pr_node, so each repo's worktree holds every
         # change made for this issue so far. Repos left untouched stay out of the map.
         diffs: dict[str, str] = {}
-        for repo in repos:
-            git_branch = git_clients.get(repo.name)
-            if git_branch and git_branch.has_changes():
-                diffs[repo.name] = git_branch.diff()
+        for name, git_branch in git_clients.items():
+            if git_branch.has_changes():
+                diffs[name] = git_branch.diff()
 
         return {
             "code_result": code_result,
