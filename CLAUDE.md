@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (55 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (58 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -100,6 +100,11 @@ single source of truth for what a human may answer at each type: the pydantic `D
 the UI posts JSON to `/api/runs/{key}/decision`, and `channels/jira_comments.py` turns a Jira reply
 into the same payload. The graph itself is channel-agnostic; `state["channel"]` only decides where
 `AutomationService._after_run` announces the next pause.
+
+`AutomationService` holds one `asyncio.Lock` per issue around every check-then-start (`start_run`,
+`submit_decision`, `retry`), and every pending payload carries `gate_id` (the interrupt id). The HTTP API
+requires a decision to echo it and answers `409` (`ConflictError`) for an earlier gate; the Jira channel
+passes the id of the gate it parsed the command against and drops a `comment_id` it has already seen.
 
 On resume LangGraph re-executes the interrupted node from the top, so **gate functions must be pure
 before their `interrupt` call**.

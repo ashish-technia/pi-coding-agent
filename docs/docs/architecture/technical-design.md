@@ -323,7 +323,7 @@ sequenceDiagram
   S->>C: notify_pending(key, interrupt payload)
   C->>J: POST comment: summary + "Reply with one of: /approve …"
   J-->>JA: Issue commented (by a human)
-  JA->>API: POST /webhooks/jira/comment {issue_key, comment_body, author_account_id}
+  JA->>API: POST /webhooks/jira/comment {issue_key, comment_body, author_account_id, comment_id}
   API->>Q: enqueue {kind:comment}
   Q->>S: submit_comment(...)
   S->>C: decision_from_comment(pending.type, body, author)

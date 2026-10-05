@@ -55,12 +55,19 @@ async def test_ui_flow_over_http(client):
     data = await _wait(c, key)
     assert data["pending"]["type"] == "requirements_approval"
 
+    gate_id = data["pending"]["gate_id"]
     r = await c.post(f"/api/runs/{key}/decision", json={"action": "approve"})
+    assert r.status_code == 422, "the UI must say which gate it is answering"
+    r = await c.post(f"/api/runs/{key}/decision", json={"action": "approve", "gate_id": gate_id})
     assert r.status_code == 200
     data = await _wait(c, key)
     assert data["pending"]["type"] == "plan_approval"
 
-    r = await c.post(f"/api/runs/{key}/decision", json={"action": "finish"})
+    # The requirements gate's id no longer answers anything.
+    r = await c.post(f"/api/runs/{key}/decision", json={"action": "approve", "gate_id": gate_id})
+    assert r.status_code == 409 and "earlier gate" in r.json()["detail"]
+
+    r = await c.post(f"/api/runs/{key}/decision", json={"action": "finish", "gate_id": data["pending"]["gate_id"]})
     assert r.status_code == 400
     assert "not valid" in r.json()["detail"]
 
@@ -88,14 +95,16 @@ async def test_jira_ingress_requires_secret_and_drives_run_by_comments(client, f
     )
     assert r.json()["handled"] is False
 
-    r = await c.post(
-        "/webhooks/jira/comment",
-        json={"issue_key": key, "comment_body": "/approve", "author_account_id": "human-1"},
-        headers={"x-webhook-secret": "test-secret"},
-    )
+    approve = {"issue_key": key, "comment_body": "/approve", "author_account_id": "human-1", "comment_id": "10001"}
+    r = await c.post("/webhooks/jira/comment", json=approve, headers={"x-webhook-secret": "test-secret"})
     assert r.json()["handled"] is True
     data = await _wait(c, key)
     assert data["pending"]["type"] == "plan_approval"
+
+    # Jira Automation delivers the same comment again: it must not approve the plan as well.
+    r = await c.post("/webhooks/jira/comment", json=approve, headers={"x-webhook-secret": "test-secret"})
+    assert r.json()["handled"] is False and "already" in r.json()["reason"]
+    assert (await _wait(c, key))["pending"]["type"] == "plan_approval"
 
     r = await c.post(
         "/webhooks/jira/comment",
