@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (52 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (53 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -184,7 +184,9 @@ in a throwaway index, because `git diff HEAD` leaves out files the agent created
 `review_agent.py` trims what the review model sees to `REVIEW_MAX_DIFF_CHARS` by whole files and records
 them in `review_omitted_files`, which the phase and final gates show. Nothing is committed until `pr_node`, so those worktrees
 still hold every phase's changes. The coding node creates the plan's branch on its first pass only, in
-every selected repo's worktree, and `pr_node` force-pushes it. `pr_node` must stay safe to repeat (commit if
+every selected repo's worktree, and `pr_node` force-pushes it. Every `GitBranchClient` call made from an async node
+goes through `asyncio.to_thread`: it is a blocking subprocess, and on the event loop a slow push would freeze
+the API and every other run. `pr_node` must stay safe to repeat (commit if
 dirty, push, find an open PR before creating one); the Jira comment and transition live in `announce_node`
 so a Jira failure never re-runs the Bitbucket step.
 

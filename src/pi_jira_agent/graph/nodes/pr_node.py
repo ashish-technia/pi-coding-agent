@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from ...bitbucket_client import BitbucketClient
@@ -32,6 +33,19 @@ def _description(code_result: AgentResult, repos: list[RepoConfig], issue_key: s
     )
 
 
+def _commit_and_push(git_branch: GitBranchClient, repo_name: str, branch: str, base: str, message: str) -> bool:
+    """Commit what is uncommitted and push the branch. False when the repo has nothing to deliver."""
+    if git_branch.has_changes():
+        logger.info("Committing changes in repo %s on branch %s", repo_name, branch)
+        git_branch.commit_all(message)
+    elif git_branch.ahead_count(base) == 0:
+        # Untouched repo: pushing would open an empty PR, so leave it alone.
+        return False
+    logger.info("Pushing branch %s in repo %s", branch, repo_name)
+    git_branch.push_branch(branch)
+    return True
+
+
 def make_pr_node(
     bitbucket_clients: dict[str, BitbucketClient],
     workspaces: RunWorkspaces,
@@ -59,17 +73,14 @@ def make_pr_node(
             git_branch: GitBranchClient = workspaces.git(state["issue_key"], repo.name)
             base = base_shas.get(repo.name) or f"{git_branch.remote_name}/{repo.target_branch}"
 
-            if git_branch.has_changes():
-                logger.info("Committing changes in repo %s on branch %s", repo.name, branch)
-                git_branch.commit_all(code_result.commit_message)
-            elif git_branch.ahead_count(base) == 0:
-                # Untouched repo: pushing would open an empty PR, so leave it alone.
+            # git runs as a blocking subprocess (a push can take minutes), so it stays off the event loop.
+            delivered = await asyncio.to_thread(
+                _commit_and_push, git_branch, repo.name, branch, base, code_result.commit_message
+            )
+            if not delivered:
                 logger.info("No changes in repo %s for %s; skipping its PR.", repo.name, issue.key)
                 skipped.append(repo.name)
                 continue
-
-            logger.info("Pushing branch %s in repo %s", branch, repo.name)
-            git_branch.push_branch(branch)
 
             # Every step above is safe to repeat. This one is not, so a retry first looks for
             # the pull request an earlier attempt may already have opened.

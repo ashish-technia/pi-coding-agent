@@ -478,3 +478,34 @@ async def test_failed_jira_transition_does_not_repeat_the_pr_or_the_comment(fake
         assert fakes["transitions"] == [f"{key}:31"]
     finally:
         await svc.stop()
+
+
+async def test_slow_git_push_does_not_block_the_api(service, fakes, monkeypatch):
+    import asyncio
+    import threading
+    import time
+
+    from pi_jira_agent.git_client import GitBranchClient
+
+    pushing, pushed = threading.Event(), threading.Event()
+    real_push = GitBranchClient.push_branch
+
+    def slow_push(self, branch):
+        pushing.set()
+        time.sleep(1.0)
+        real_push(self, branch)
+        pushed.set()
+
+    monkeypatch.setattr(GitBranchClient, "push_branch", slow_push)
+    key = _key()
+    await _to_final_gate(service, fakes, key)
+    await service.submit_decision(key, {"action": "create_pr", "pr_title": "TEST: retry"})
+
+    while not pushing.is_set():
+        await asyncio.sleep(0.01)
+    started = time.monotonic()
+    runs = await service.list_runs()
+    assert not pushed.is_set(), "the event loop only got control back after the push had finished"
+    assert time.monotonic() - started < 0.5 and any(r["issue_key"] == key for r in runs)
+
+    assert (await wait_paused(service, key))["status"] == "done"
