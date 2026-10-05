@@ -35,7 +35,7 @@ Full status:
 | Field | Meaning |
 |---|---|
 | `status`, `running`, `node`, `node_label`, `stage` | where the run is |
-| `pending` | the gate waiting for a decision (`type` plus its payload) or `null` |
+| `pending` | the gate waiting for a decision (`type`, `gate_id`, plus its payload) or `null`. `gate_id` is unique to this pause |
 | `issue_details` | summary, description, comments, labels, url |
 | `requirements`, `requirements_original`, `scope_check` | requirements stage |
 | `plan_result`, `execution_mode`, `phase_index`, `phases_total` | plan stage |
@@ -48,6 +48,12 @@ Full status:
 
 One decision, validated against `pending.type`. Wrong action → `400`.
 
+Every body must also carry `"gate_id"`, copied from `pending.gate_id` (missing → `422`). It names the
+pause being answered: the same kind of gate comes back (requirements after a revise, the phase gate
+between phases), so without it a double-click or a resent request could answer the next one. A
+`gate_id` that is no longer pending, or a decision that arrives while the run is running, gets
+`409`. Two decisions sent at the same moment resume the run once; the other gets `409`.
+
 | Pending type | Body examples |
 |---|---|
 | `requirements_approval` | `{"action":"approve","requirements":{…},"acknowledge_scope":false}` · `{"action":"revise","notes":"…"}` · `{"action":"cancel"}` |
@@ -57,7 +63,7 @@ One decision, validated against `pending.type`. Wrong action → `400`.
 
 ### `POST /api/runs/{key}/retry`
 
-Resume a run stuck on a node that raised (timeout, missing key, git failure) from its last checkpoint.
+Resume a run stuck on a node that raised (timeout, missing key, git failure) from its last checkpoint. `409` when the run is running.
 
 ### `GET /api/config`
 
@@ -78,10 +84,10 @@ Starts a run on the `jira` channel (queued when `USE_QUEUE=true`).
 ### `POST /webhooks/jira/comment`
 
 ```json
-{ "issue_key": "WAAS-643", "comment_body": "/approve phased", "author_account_id": "5f…" }
+{ "issue_key": "WAAS-643", "comment_body": "/approve phased", "author_account_id": "5f…", "comment_id": "10412" }
 ```
 
-Parses the first line as a command for the pending gate. Comments from `JIRA_AGENT_ACCOUNT_ID` and non-command comments are ignored (`handled: false`).
+Parses the first line as a command for the pending gate. Comments from `JIRA_AGENT_ACCOUNT_ID` and non-command comments are ignored (`handled: false`). So is a `comment_id` that was already handled, which is how a redelivered web request is kept from answering the next gate; the ids are remembered in memory, per process.
 
 ### `POST /webhooks/jira` (classic)
 

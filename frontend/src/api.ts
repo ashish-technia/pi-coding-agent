@@ -100,7 +100,8 @@ export interface AgentResult {
   phases: PlanPhase[]
 }
 
-export type Pending =
+/** Every pending gate carries `gate_id`, unique to this pause; a decision must echo it. */
+export type Pending = { gate_id: string } & (
   | { type: 'requirements_approval'; issue_key: string; requirements: Requirements; scope_check: ScopeCheck | null }
   | { type: 'plan_approval'; issue_key: string; plan: AgentResult; phases_total: number }
   | {
@@ -131,6 +132,7 @@ export type Pending =
       phases_completed: number
       phases_total: number
     }
+)
 
 export interface ActivityEvent {
   seq: number
@@ -276,10 +278,10 @@ export const api = {
       body: JSON.stringify({ issue_key, ...(inline ?? {}), ...(repos?.length ? { repos } : {}) }),
     }),
   getRun: (key: string) => request<RunStatus>(`/api/runs/${encodeURIComponent(key)}`),
-  decide: (key: string, decision: Decision) =>
+  decide: (key: string, gateId: string, decision: Decision) =>
     request<RunStatus>(`/api/runs/${encodeURIComponent(key)}/decision`, {
       method: 'POST',
-      body: JSON.stringify(decision),
+      body: JSON.stringify({ ...decision, gate_id: gateId }),
     }),
   retry: (key: string) => request<RunStatus>(`/api/runs/${encodeURIComponent(key)}/retry`, { method: 'POST' }),
 }

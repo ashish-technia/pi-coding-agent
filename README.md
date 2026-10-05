@@ -95,7 +95,7 @@ list in `repos.json`; see [Repositories](docs/docs/getting-started/repositories.
 | `POST` | `/api/runs/{key}/retry` | resume a run stuck on an error |
 | `GET` | `/api/config` | effective configuration (no secrets) |
 | `POST` | `/webhooks/jira/trigger` | flow 2: `{"issue_key"}` from a Jira Automation rule |
-| `POST` | `/webhooks/jira/comment` | flow 2: `{"issue_key","comment_body","author_account_id"}` |
+| `POST` | `/webhooks/jira/comment` | flow 2: `{"issue_key","comment_body","author_account_id","comment_id"}` |
 
 Interactive docs at `/docs`.
 
@@ -110,7 +110,7 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-scripts/check.sh all                        # lint, types, 55 tests, frontend and docs builds, as CI runs them
+scripts/check.sh all                        # lint, types, 58 tests, frontend and docs builds, as CI runs them
 scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site

@@ -39,7 +39,7 @@ graph TD
 | `phase_gate` (`phase_gate`) | `continue`, `stop` | only pauses in phased mode when phases remain |
 | `await_final` (`final_review`) | `create_pr` (+ `pr_title`, `pr_description`), `finish` | `create_pr` is refused when `PR_CREATION_ENABLED=false` |
 
-The decision models live in `graph/decisions.py`. The service validates a raw decision against the pending type before resuming, so a `create_pr` sent while a plan is pending is rejected with HTTP 400.
+Each pending payload also carries a `gate_id`, unique to that pause; the UI echoes it with its decision and the service refuses (`409`) one that names an earlier gate. The decision models live in `graph/decisions.py`. The service validates a raw decision against the pending type before resuming, so a `create_pr` sent while a plan is pending is rejected with HTTP 400.
 
 ## Status values
 

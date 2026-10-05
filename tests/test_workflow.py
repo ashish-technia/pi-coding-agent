@@ -529,3 +529,66 @@ async def test_restarting_a_finished_issue_starts_from_clean_state(service, fake
     assert leftovers == {}, "nothing from the finished run may show in the new one"
     assert status["review_approved"] is None and not status["review_feedback"]
     assert status["iteration"] == 0 and status["phase_index"] == 0 and status["retry_count"] == 0
+
+
+async def test_two_concurrent_decisions_resume_the_gate_once(service, fakes):
+    import asyncio
+
+    from pi_jira_agent.service import ConflictError
+
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+
+    results = await asyncio.gather(
+        service.submit_decision(key, {"action": "approve"}),
+        service.submit_decision(key, {"action": "approve"}),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(r, ConflictError) for r in results) == 1, results
+    assert sum(isinstance(r, dict) for r in results) == 1
+
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_plan"
+    assert fakes["llm"].scope_calls == 0 and len(fakes["runner"].calls) == 1, "planning ran once"
+
+
+async def test_decision_for_an_earlier_gate_is_refused(service, fakes):
+    from pi_jira_agent.service import ConflictError
+
+    key = _key()
+    await service.start_run(key)
+    first = (await wait_paused(service, key))["pending"]["gate_id"]
+
+    # Revise brings the same kind of gate back: only its id tells the two apart.
+    await service.submit_decision(key, {"action": "revise", "notes": "Mention the timeout", "gate_id": first})
+    status = await wait_paused(service, key)
+    second = status["pending"]["gate_id"]
+    assert status["pending"]["type"] == "requirements_approval" and first and second and first != second
+
+    # A double-click or a redelivered request still carries the first gate's id.
+    with pytest.raises(ConflictError, match="earlier gate"):
+        await service.submit_decision(key, {"action": "approve", "gate_id": first})
+    assert (await service.get_status(key))["status"] == "pending_requirements"
+
+    await service.submit_decision(key, {"action": "approve", "gate_id": second})
+    assert (await wait_paused(service, key))["status"] == "pending_plan"
+
+
+async def test_retry_is_refused_while_the_run_is_running(service, fakes):
+    import asyncio
+
+    from pi_jira_agent.service import ConflictError
+
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+    fakes["runner"].gate = asyncio.Event()
+    await service.submit_decision(key, {"action": "approve"})
+    try:
+        with pytest.raises(ConflictError):
+            await service.retry(key)
+    finally:
+        fakes["runner"].gate.set()
+    assert (await wait_paused(service, key))["status"] == "pending_plan"
+    assert len(fakes["runner"].calls) == 1

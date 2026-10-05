@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import logging
 import time
 from collections.abc import Coroutine
@@ -35,12 +36,37 @@ _STATUS_FOR_PENDING = {
 _ENDED_STATUSES = {"done", "failed", "cancelled"}
 
 
+# How many comment ids per issue are remembered to spot a redelivered Jira comment.
+_SEEN_COMMENTS_PER_ISSUE = 200
+
+
+class ConflictError(Exception):
+    """The request lost a race or answers something that is no longer waiting (HTTP 409)."""
+
+
+def _pending_of(state) -> dict | None:
+    """The pending gate's payload plus ``gate_id``, which is unique to this pause.
+
+    The same kind of gate comes back (requirements after a revise, the phase gate between
+    phases), so the type alone cannot tell a decision meant for an earlier pause from one
+    meant for this one.
+    """
+    for task in state.tasks if state else ():
+        for pending_interrupt in task.interrupts:
+            return {**pending_interrupt.value, "gate_id": pending_interrupt.id}
+    return None
+
+
 class AutomationService:
     def __init__(self):
         self._graph_builder = build_graph()
         self._checkpointer_cm = None
         self.graph: CompiledStateGraph | None = None
         self._tasks: dict[str, asyncio.Task] = {}
+        # One lock per issue around every check-then-start, so two requests for the same
+        # issue cannot both find it idle and both start it.
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._seen_comments: dict[str, collections.deque[str]] = {}
         self.registry = make_registry(settings.database_url, settings.graph_checkpoint_db)
         self.workspaces = make_workspaces()
         self.jira_channel: JiraCommentChannel | None = None
@@ -74,6 +100,9 @@ class AutomationService:
         if self.graph is None:
             raise RuntimeError("AutomationService is not started; call start() first.")
         return self.graph
+
+    def _lock(self, issue_key: str) -> asyncio.Lock:
+        return self._locks.setdefault(issue_key, asyncio.Lock())
 
     @staticmethod
     def _config(issue_key: str) -> RunnableConfig:
@@ -146,19 +175,32 @@ class AutomationService:
         issue_key = issue_key.strip().upper()
         config = self._config(issue_key)
 
+        async with self._lock(issue_key):
+            await self._start_locked(issue_key, config, channel=channel, inline_issue=inline_issue, repos=repos)
+        return await self.get_status(issue_key)
+
+    async def _start_locked(
+        self,
+        issue_key: str,
+        config: RunnableConfig,
+        *,
+        channel: str,
+        inline_issue: JiraIssue | None,
+        repos: list[str] | None,
+    ) -> None:
         if issue_key in self._tasks:
-            return await self.get_status(issue_key)
+            return
 
         existing = await self._compiled.aget_state(config)
         if existing and existing.next:
             next_nodes = set(existing.next)
             if next_nodes <= _GATE_NODES:
                 # Paused for a human — do not restart.
-                return await self.get_status(issue_key)
+                return
             if not self._first_task_error(existing):
                 logger.info("Auto-resuming %s after restart (next=%s)", issue_key, next_nodes)
                 self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
-            return await self.get_status(issue_key)
+            return
 
         selected = settings.selected_repos(repos)
         # Leftovers of an earlier run of this issue (a crash before cleanup) must not be reused.
@@ -176,43 +218,61 @@ class AutomationService:
             issue_key, summary=inline_issue.summary if inline_issue else None, status="fetching", channel=channel
         )
         self._run_background(issue_key, self._compiled.ainvoke(state, config=config))
-        return await self.get_status(issue_key)
 
     # Backwards-compatible name used by the legacy webhook path.
     async def process_issue(self, issue: JiraIssue) -> dict:
         return await self.start_run(issue.key, channel="ui", inline_issue=issue)
 
     async def get_pending(self, issue_key: str) -> dict | None:
-        config = self._config(issue_key)
-        state = await self._compiled.aget_state(config)
-        if not state or not state.tasks:
-            return None
-        for task in state.tasks:
-            for pending_interrupt in task.interrupts:
-                return pending_interrupt.value
-        return None
+        return _pending_of(await self._compiled.aget_state(self._config(issue_key)))
 
     async def submit_decision(self, issue_key: str, payload: dict) -> dict:
-        """Validate a human decision against the pending gate and resume the graph."""
+        """Validate a human decision against the pending gate and resume the graph.
+
+        ``gate_id`` in the payload names the pause being answered. The HTTP API requires it;
+        when present it must match, so a stale or repeated decision cannot answer a later gate.
+        """
         issue_key = issue_key.strip().upper()
-        if issue_key in self._tasks:
-            raise ValueError(f"{issue_key} is still running; wait for it to pause before deciding.")
-        pending = await self.get_pending(issue_key)
-        if not pending:
-            raise ValueError(f"{issue_key} is not waiting for a decision.")
-        pending_type = pending.get("type", "")
-        decision = parse_decision(pending_type, payload)
-        if pending_type == "final_review" and payload.get("action") == "create_pr" and not pending.get("pr_enabled"):
-            raise ValueError("Pull request creation is disabled (PR_CREATION_ENABLED=false).")
-        resume = decision.model_dump(mode="json")
-        logger.info("Decision for %s at %s: %s", issue_key, pending_type, resume.get("action"))
-        self._run_background(issue_key, self._compiled.ainvoke(Command(resume=resume), config=self._config(issue_key)))
+        payload = dict(payload)
+        gate_id = payload.pop("gate_id", None)
+        async with self._lock(issue_key):
+            if issue_key in self._tasks:
+                raise ConflictError(f"{issue_key} is still running; wait for it to pause before deciding.")
+            pending = await self.get_pending(issue_key)
+            if not pending:
+                raise ValueError(f"{issue_key} is not waiting for a decision.")
+            if gate_id and gate_id != pending["gate_id"]:
+                raise ConflictError(
+                    f"That decision answers an earlier gate of {issue_key}; reload to see what it is waiting for now."
+                )
+            pending_type = pending.get("type", "")
+            decision = parse_decision(pending_type, payload)
+            if (
+                pending_type == "final_review"
+                and payload.get("action") == "create_pr"
+                and not pending.get("pr_enabled")
+            ):
+                raise ValueError("Pull request creation is disabled (PR_CREATION_ENABLED=false).")
+            resume = decision.model_dump(mode="json")
+            logger.info("Decision for %s at %s: %s", issue_key, pending_type, resume.get("action"))
+            self._run_background(
+                issue_key, self._compiled.ainvoke(Command(resume=resume), config=self._config(issue_key))
+            )
         return await self.get_status(issue_key)
 
-    async def submit_comment(self, issue_key: str, body: str, author_account_id: str = "") -> dict:
+    async def submit_comment(
+        self, issue_key: str, body: str, author_account_id: str = "", comment_id: str = ""
+    ) -> dict:
         """Flow 2: a human replied on the Jira issue. Map the command to a decision."""
         if not self.jira_channel:
             raise ValueError("Jira comment channel is disabled (JIRA_COMMENT_CHANNEL_ENABLED=false).")
+        if comment_id:
+            # Jira Automation can deliver one comment more than once. The second "/approve"
+            # would otherwise answer whichever gate the first one led to.
+            seen = self._seen_comments.setdefault(issue_key, collections.deque(maxlen=_SEEN_COMMENTS_PER_ISSUE))
+            if comment_id in seen:
+                return {"issue": issue_key, "handled": False, "reason": "comment was already handled"}
+            seen.append(comment_id)
         pending = await self.get_pending(issue_key)
         if not pending:
             return {"issue": issue_key, "handled": False, "reason": "no pending decision"}
@@ -220,8 +280,9 @@ class AutomationService:
         if decision is None:
             return {"issue": issue_key, "handled": False, "reason": "comment is not a command"}
         try:
-            status = await self.submit_decision(issue_key, decision)
-        except ValueError as exc:
+            # The command was read against this gate, so it may only answer this gate.
+            status = await self.submit_decision(issue_key, {**decision, "gate_id": pending["gate_id"]})
+        except (ValueError, ConflictError) as exc:
             await self.jira_channel.notify_text(issue_key, f"I could not apply that reply: {exc}")
             return {"issue": issue_key, "handled": False, "reason": str(exc)}
         return {"issue": issue_key, "handled": True, "decision": decision, **status}
@@ -229,19 +290,22 @@ class AutomationService:
     async def retry(self, issue_key: str) -> dict:
         """Resume a run stuck on a node that previously raised an exception."""
         config = self._config(issue_key)
-        state = await self._compiled.aget_state(config)
-        if not state:
-            raise RuntimeError(f"No run found for {issue_key}")
+        async with self._lock(issue_key):
+            if issue_key in self._tasks:
+                raise ConflictError(f"{issue_key} is running; there is nothing to retry.")
+            state = await self._compiled.aget_state(config)
+            if not state:
+                raise RuntimeError(f"No run found for {issue_key}")
 
-        error = self._first_task_error(state)
-        stuck_nodes = set(state.next) if state.next else set()
-        retry_count = (state.values.get("retry_count") or 0) + 1
-        updates: dict = {"retry_count": retry_count}
-        if error and "review_agent" in stuck_nodes:
-            existing_feedback = state.values.get("review_feedback", "")
-            updates["review_feedback"] = f"{existing_feedback}\n[Previous attempt errored: {error[:300]}]".strip()
-        await self._compiled.aupdate_state(config, updates)
-        self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
+            error = self._first_task_error(state)
+            stuck_nodes = set(state.next) if state.next else set()
+            retry_count = (state.values.get("retry_count") or 0) + 1
+            updates: dict = {"retry_count": retry_count}
+            if error and "review_agent" in stuck_nodes:
+                existing_feedback = state.values.get("review_feedback", "")
+                updates["review_feedback"] = f"{existing_feedback}\n[Previous attempt errored: {error[:300]}]".strip()
+            await self._compiled.aupdate_state(config, updates)
+            self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
         return await self.get_status(issue_key)
 
     async def list_runs(self, limit: int = 50) -> list[dict]:
@@ -286,11 +350,7 @@ class AutomationService:
             node_label = NODE_LABELS.get(node, node) if node else None
 
         issue = values.get("issue")
-        pending = None
-        for task in state.tasks:
-            for pending_interrupt in task.interrupts:
-                pending = pending_interrupt.value
-                break
+        pending = _pending_of(state)
 
         node_since = live_progress["since"] if live_progress else None
         result = {
@@ -327,7 +387,7 @@ class AutomationService:
         }
 
         if pending and not is_running:
-            result["status"] = _STATUS_FOR_PENDING.get(pending.get("type"), result["status"])
+            result["status"] = _STATUS_FOR_PENDING.get(pending.get("type", ""), result["status"])
 
         if state.next and not is_running:
             error = self._first_task_error(state)

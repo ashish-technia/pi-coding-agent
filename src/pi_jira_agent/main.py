@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from .config import settings
 from .models import JiraIssue, JiraWebhookPayload
 from .queue_worker import make_job_queue
-from .service import AutomationService
+from .service import AutomationService, ConflictError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,7 +32,9 @@ async def _handle_job(job: dict) -> None:
             repos=job.get("repos"),
         )
     elif kind == "comment":
-        await automation.submit_comment(job["issue_key"], job.get("body", ""), job.get("author_account_id", ""))
+        await automation.submit_comment(
+            job["issue_key"], job.get("body", ""), job.get("author_account_id", ""), job.get("comment_id", "")
+        )
     else:
         logger.warning("Unknown job kind: %s", kind)
 
@@ -77,6 +79,11 @@ async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(ConflictError)
+async def conflict_error_handler(_: Request, exc: ConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 @app.exception_handler(LookupError)
 async def lookup_error_handler(_: Request, exc: LookupError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(exc)})
@@ -99,6 +106,9 @@ class StartRunRequest(BaseModel):
 
 class DecisionRequest(BaseModel):
     action: str
+    # `pending.gate_id` of the gate being answered. Required, so a decision sent twice or
+    # from a stale page cannot answer a later gate of the same kind.
+    gate_id: str
     notes: str | None = None
     requirements: dict | None = None
     acknowledge_scope: bool | None = None
@@ -124,6 +134,8 @@ class JiraCommentRequest(BaseModel):
     issue_key: str
     comment_body: str
     author_account_id: str = ""
+    # Jira's id of the comment; lets a redelivered web request be recognised and ignored.
+    comment_id: str = ""
 
 
 def _is_allowed_project(project_key: str) -> bool:
@@ -234,11 +246,12 @@ async def jira_comment(req: JiraCommentRequest, x_webhook_secret: str = Header(d
         "issue_key": key,
         "body": req.comment_body,
         "author_account_id": req.author_account_id,
+        "comment_id": req.comment_id,
     }
     if settings.use_queue:
         await job_queue.enqueue(job)
         return {"status": "queued", "issue": key}
-    return await automation.submit_comment(key, req.comment_body, req.author_account_id)
+    return await automation.submit_comment(key, req.comment_body, req.author_account_id, req.comment_id)
 
 
 @app.post("/webhooks/jira")

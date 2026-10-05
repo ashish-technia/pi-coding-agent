@@ -48,9 +48,12 @@ export default function RunPage() {
     setBusy(true)
     setError(null)
     try {
-      setRun(await api.decide(issueKey, d))
+      if (!run?.pending) return
+      setRun(await api.decide(issueKey, run.pending.gate_id, d))
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
+      // 409: the run moved on (another tab or a second click answered first). Show where it is now.
+      if (e instanceof ApiError && e.status === 409) void refresh()
     } finally {
       setBusy(false)
     }
