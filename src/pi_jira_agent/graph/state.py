@@ -29,6 +29,7 @@ class GraphState(TypedDict, total=False):
     issue: JiraIssue
     channel: Channel  # where feedback requests are surfaced (UI now, Jira comments in flow 2)
     repos: list[str]  # repo names this run works in, in repos.json order; [0] is the primary
+    base_shas: dict[str, str]  # repo name -> commit the run's worktree was created from
 
     # --- Requirements stage ----------------------------------------------
     requirements_original: RequirementsSpec  # the agent's framing, kept for scope comparison
@@ -46,7 +47,7 @@ class GraphState(TypedDict, total=False):
 
     # --- Coding / review loop -------------------------------------------
     code_result: AgentResult
-    diffs: dict[str, str]  # repo name -> cumulative working-tree diff; repos with no changes are absent
+    diffs: dict[str, str]  # repo name -> cumulative worktree diff; repos with no changes are absent
     phase_diffs: list[dict[str, str]]  # diff snapshot per repo, recorded after each accepted phase
     review_approved: bool
     review_feedback: str

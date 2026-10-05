@@ -45,5 +45,5 @@ Every human pause is a LangGraph `interrupt(payload)`. The payload carries a `ty
 ## Concurrency and scaling
 
 - One asyncio task per running issue; several issues can run in parallel in one process.
-- The git working tree is shared, so runs against the *same* repository should be serialized by the queue (one worker) until per-run worktrees are introduced.
+- Each run works in its own git worktree per repository (`RUNS_ROOT`), so runs against the *same* repository do not interfere. The configured clones are only fetched.
 - With `DATABASE_URL` and `REDIS_URL` set, multiple API/worker processes can share the queue and checkpoints.

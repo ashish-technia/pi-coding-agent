@@ -17,8 +17,8 @@ The planning agent reads a Jira issue and produces a structured implementation p
 repos = selected_repos(repo_map, state)          # the run's checked repositories
 plan_result = await pi_agent.run_with_mode(
     issue,
-    repo_cwd=repos[0].path or ".",               # primary repo = the session's cwd
-    repo_roots=repo_roots_payload(repos),        # every attached repo, by absolute path
+    repo_cwd=workspaces.cwd(key, repos),              # primary repo's worktree = the session's cwd
+    repo_roots=workspaces.roots_payload(key, repos),  # every attached worktree, by absolute path
     execute_changes=False,                       # plan mode: no file writes
 )
 ```

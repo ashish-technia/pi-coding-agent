@@ -4,6 +4,7 @@ from ...bitbucket_client import BitbucketClient
 from ...git_client import GitBranchClient
 from ...jira_client import JiraClient
 from ...models import AgentResult, JiraIssue, RepoConfig
+from ...workspace import RunWorkspaces
 from .. import progress
 from ..repo_context import RepoMap, selected_repos
 from ..state import AsyncNode, GraphState
@@ -34,7 +35,7 @@ def _description(code_result: AgentResult, repos: list[RepoConfig], issue_key: s
 def make_pr_node(
     bitbucket_clients: dict[str, BitbucketClient],
     jira: JiraClient,
-    git_clients: dict[str, GitBranchClient],
+    workspaces: RunWorkspaces,
     repo_map: RepoMap,
     *,
     jira_transition_done_id: str | None,
@@ -52,18 +53,20 @@ def make_pr_node(
 
         pr_urls: dict[str, str] = {}
         skipped: list[str] = []
+        base_shas = state.get("base_shas") or {}
         for repo in repos:
-            git_branch = git_clients.get(repo.name)
             bitbucket = bitbucket_clients.get(repo.name)
-            if not git_branch:
+            if not repo.path.strip():
                 raise RuntimeError(f"PR creation requires a local path for repo {repo.name!r}.")
             if not bitbucket:
                 raise RuntimeError(f"PR creation requires a Bitbucket repo slug for repo {repo.name!r}.")
+            git_branch: GitBranchClient = workspaces.git(state["issue_key"], repo.name)
+            base = base_shas.get(repo.name) or f"{git_branch.remote_name}/{repo.target_branch}"
 
             if git_branch.has_changes():
                 logger.info("Committing changes in repo %s on branch %s", repo.name, branch)
                 git_branch.commit_all(code_result.commit_message)
-            elif git_branch.ahead_count(target_branch=repo.target_branch, source_branch=branch) == 0:
+            elif git_branch.ahead_count(base) == 0:
                 # Untouched repo: pushing would open an empty PR, so leave it alone.
                 logger.info("No changes in repo %s for %s; skipping its PR.", repo.name, issue.key)
                 skipped.append(repo.name)

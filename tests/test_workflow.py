@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from tests.conftest import wait_paused
+from tests.conftest import base_clone, git, remote_branches, runs_root, wait_paused
 
 pytestmark = pytest.mark.asyncio
 
@@ -60,7 +60,9 @@ async def test_full_flow_phased_with_scope_warning_review_retry_and_pr(service, 
     assert len(coding_calls) == 2, "one rejected attempt plus one retry"
     assert coding_calls[0]["plan_steps"] == ["src/client.py"]
     assert coding_calls[1]["review_feedback"].startswith("Missing null check")
-    assert fakes["git"] == ["prepare:web"], "branch prepared once, on the first pass, in the selected repo"
+    worktree = runs_root() / key / "web"
+    assert git(worktree, "branch", "--show-current").strip() == f"feature/{key}-retry", "branch created on first pass"
+    assert not (runs_root() / key / "api").exists(), "only the selected repo gets a worktree"
     assert status["iteration"] == 2 and status["phase_index"] == 0
 
     # 6. Continue -> phase 2 (tests) coded with a fresh iteration counter, approved first time.
@@ -81,10 +83,11 @@ async def test_full_flow_phased_with_scope_warning_review_retry_and_pr(service, 
     assert status["status"] == "done"
     assert status["pr_urls"] == {"web": "https://bitbucket.invalid/web-repo/pr/7"}
     assert [(p["title"], p["source"], p["dest"], p["slug"]) for p in fakes["prs"]] == [
-        ("TEST: retry transient errors", "feature/TEST-1-retry", "develop", "web-repo")
+        ("TEST: retry transient errors", f"feature/{key}-retry", "develop", "web-repo")
     ]
-    assert "push:web:feature/TEST-1-retry" in fakes["git"]
-    assert any(c.startswith("commit:web:") for c in fakes["git"])
+    assert f"feature/{key}-retry" in remote_branches("web"), "the run branch was pushed"
+    pushed = git(base_clone("web"), "log", "-1", "--format=%s", f"origin/feature/{key}-retry").strip()
+    assert pushed == "TEST-1: implement"
     assert "Part of a multi-repository change" not in fakes["prs"][0]["description"], "single repo: no sibling note"
 
     runs = await service.list_runs()
@@ -201,8 +204,9 @@ async def test_multi_repo_run_plans_across_repos_and_opens_one_pr_each(service, 
     assert status["status"] == "pending_final"
     assert status["pending"]["files_changed"] == ["web/src/client.py", "api/tests/test_client.py"]
     assert sorted(status["diffs"]) == ["api", "web"], "one working-tree diff per repo"
-    assert "a/api/src/client.py" in status["diffs"]["api"]
-    assert fakes["git"].count("prepare:web") == 1 and fakes["git"].count("prepare:api") == 1
+    assert "src/client.py" in status["diffs"]["web"] and "tests/test_client.py" in status["diffs"]["api"]
+    for name in ("web", "api"):
+        assert git(runs_root() / key / name, "branch", "--show-current").strip() == f"feature/{key}-retry"
 
     # The reviewer sees both diffs, labelled, so cross-repo references resolve.
     review_prompt = fakes["llm"].last_prompts["review"]
@@ -218,9 +222,70 @@ async def test_multi_repo_run_plans_across_repos_and_opens_one_pr_each(service, 
     # Each repo's PR targets its own configured branch.
     assert [(p["slug"], p["dest"]) for p in fakes["prs"]] == [("web-repo", "develop"), ("api-repo", "main")]
     assert all("Part of a multi-repository change" in p["description"] for p in fakes["prs"])
-    assert "push:api:feature/TEST-1-retry" in fakes["git"]
+    assert f"feature/{key}-retry" in remote_branches("api")
 
 
 async def test_unknown_repo_is_rejected(service):
     with pytest.raises(ValueError, match="Unknown repo"):
         await service.start_run(_key(), repos=["nope"])
+
+
+async def _to_final_gate(service, fakes, key: str) -> dict:
+    fakes["llm"].review_script = [True]
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve", "mode": "all"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_final"
+    return status
+
+
+async def test_two_issues_on_one_repo_do_not_see_each_others_edits(service, fakes):
+    first, second = _key(), _key()
+    a = await _to_final_gate(service, fakes, first)
+    b = await _to_final_gate(service, fakes, second)
+
+    assert first in a["diffs"]["web"] and second not in a["diffs"]["web"]
+    assert second in b["diffs"]["web"] and first not in b["diffs"]["web"]
+    assert git(base_clone("web"), "status", "--porcelain") == "", "the base clone is never edited"
+
+
+@pytest.mark.parametrize("ending", ["cancel", "finish", "create_pr"])
+async def test_ended_run_leaves_no_worktree_or_branch(service, fakes, ending):
+    key = _key()
+    if ending == "cancel":
+        await service.start_run(key)
+        await wait_paused(service, key)
+        await service.submit_decision(key, {"action": "approve"})
+        status = await wait_paused(service, key)
+        assert status["status"] == "pending_plan" and (runs_root() / key / "web").is_dir()
+        await service.submit_decision(key, {"action": "reject"})
+    else:
+        await _to_final_gate(service, fakes, key)
+        assert (runs_root() / key / "web").is_dir()
+        await service.submit_decision(key, {"action": ending, "pr_title": "TEST: retry"})
+    status = await wait_paused(service, key)
+    assert status["status"] in {"cancelled", "done"}
+
+    assert not (runs_root() / key).exists()
+    assert key not in git(base_clone("web"), "worktree", "list")
+    assert f"feature/{key}-retry" not in git(base_clone("web"), "branch", "--list")
+    assert (f"feature/{key}-retry" in remote_branches("web")) is (ending == "create_pr")
+
+
+async def test_missing_worktree_stops_the_run_instead_of_starting_empty(service, fakes):
+    import shutil
+
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    await wait_paused(service, key)
+    shutil.rmtree(runs_root() / key)
+
+    await service.submit_decision(key, {"action": "approve", "mode": "all"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "stuck_error"
+    assert "worktree" in status["error"] and "missing" in status["error"]

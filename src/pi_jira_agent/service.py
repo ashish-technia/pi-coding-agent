@@ -10,7 +10,7 @@ from langgraph.types import Command
 from .channels.jira_comments import JiraCommentChannel
 from .config import settings
 from .graph import progress
-from .graph.build import build_graph, make_checkpointer, make_jira_client, make_serde
+from .graph.build import build_graph, make_checkpointer, make_jira_client, make_serde, make_workspaces
 from .graph.decisions import parse_decision
 from .graph.progress import NODE_LABELS, STAGE_OF_NODE
 from .graph.state import GraphState
@@ -31,6 +31,9 @@ _STATUS_FOR_PENDING = {
     "final_review": "pending_final",
 }
 
+# A run in one of these states is over: its worktrees are removed. A stuck run keeps them for retry.
+_ENDED_STATUSES = {"done", "failed", "cancelled"}
+
 
 class AutomationService:
     def __init__(self):
@@ -39,6 +42,7 @@ class AutomationService:
         self.graph: CompiledStateGraph | None = None
         self._tasks: dict[str, asyncio.Task] = {}
         self.registry = make_registry(settings.database_url, settings.graph_checkpoint_db)
+        self.workspaces = make_workspaces()
         self.jira_channel: JiraCommentChannel | None = None
         if settings.jira_comment_channel_enabled:
             self.jira_channel = JiraCommentChannel(make_jira_client(), agent_account_id=settings.jira_agent_account_id)
@@ -82,11 +86,28 @@ class AutomationService:
             except Exception:
                 logger.exception("Background graph run failed for issue %s", issue_key)
             finally:
+                # Before the run stops counting as running, so a restart of the same issue
+                # cannot race the cleanup of its previous worktrees.
+                await self._release_workspace(issue_key)
                 self._tasks.pop(issue_key, None)
                 progress.clear(issue_key)
                 await self._after_run(issue_key)
 
         self._tasks[issue_key] = asyncio.create_task(runner())
+
+    async def _release_workspace(self, issue_key: str, *, force: bool = False) -> None:
+        """Remove the run's worktrees and local branch once it has ended (or always, with ``force``)."""
+        try:
+            state = await self._compiled.aget_state(self._config(issue_key))
+            values = state.values if state else {}
+            ended = bool(values) and not state.next and values.get("status") in _ENDED_STATUSES
+            if not (ended or force):
+                return
+            plan = values.get("plan_result")
+            branch = plan.branch_name if plan else None
+            await asyncio.to_thread(self.workspaces.remove, issue_key, branch=branch)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not release the workspace of %s", issue_key)
 
     async def _after_run(self, issue_key: str) -> None:
         """Bookkeeping once a background run stops (paused at a gate, finished, or errored)."""
@@ -140,6 +161,8 @@ class AutomationService:
             return await self.get_status(issue_key)
 
         selected = settings.selected_repos(repos)
+        # Leftovers of an earlier run of this issue (a crash before cleanup) must not be reused.
+        await self._release_workspace(issue_key, force=True)
         logger.info("Starting %s in repo(s) %s", issue_key, ", ".join(r.name for r in selected))
         initial_state: GraphState = {
             "issue_key": issue_key,

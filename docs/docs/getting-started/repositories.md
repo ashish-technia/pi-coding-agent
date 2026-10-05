@@ -52,6 +52,18 @@ the test command, the stack, a warning about a legacy area. It is quoted verbati
 **The list is read once, at startup.** Editing `repos.json` needs a restart, because the git and
 Bitbucket clients are built with it.
 
+### A worktree per run
+
+The agents never edit the clone at `path`. When a run reaches planning, the service fetches each
+selected repository and creates a detached git worktree at `origin/<target_branch>` under
+`<RUNS_ROOT>/<issue key>/<repo name>`. Planning and coding read and edit that worktree, so two
+issues on the same repository never see each other's changes, and the clone stays clean. The
+worktrees and the local run branch are removed when the run ends (pull request created, finished,
+cancelled or failed); a run stuck on an error keeps them so it can be retried.
+
+A fresh worktree has no installed dependencies and no ignored local files such as `node_modules`
+or a local `.env`.
+
 ### One file for the host and the container
 
 Host paths like `C:/projects/technia/waas-server` mean nothing inside a container. Rather than

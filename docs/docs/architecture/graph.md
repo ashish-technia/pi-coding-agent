@@ -14,7 +14,7 @@ graph TD
   await_requirements -.->|revise| requirements_agent
   await_requirements -.->|cancel| cancelled_node
   scope_check -.->|out of scope, not acknowledged| await_requirements
-  scope_check -.->|ok| planning_agent --> await_plan
+  scope_check -.->|ok| prepare_workspace --> planning_agent --> await_plan
   await_plan -.->|approve all / phased| coding_agent
   await_plan -.->|refine| planning_agent
   await_plan -.->|reject| cancelled_node
@@ -50,7 +50,9 @@ While a gate is paused the effective status is derived from the pending interrup
 ## Repositories
 
 A run carries the repositories it may work in (`repos` in state, chosen by the UI checkboxes or the
-API). `planning_agent` and `coding_agent` attach all of them to one Pi session; `review_agent`
+API). `prepare_workspace` gives the run its own git worktree of each one, created from the target
+branch, so runs never share a working tree. `planning_agent` and `coding_agent` attach all of
+those worktrees to one Pi session; `review_agent`
 sees one labelled diff per repo; `pr_node` opens one pull request per repo that changed. Phases
 slice the plan by stage, not by repository. See [Repositories](../getting-started/repositories.md).
 

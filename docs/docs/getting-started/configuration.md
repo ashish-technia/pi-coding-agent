@@ -29,7 +29,7 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 | `BITBUCKET_HOST` | git host used to derive a clone URL when a repo has no `clone_url` (default `bitbucket.org`) |
 | `REPO_LOCAL_PATH` | local clone the agents plan against and edit, used when `repos.json` is absent |
 | `GIT_REMOTE_NAME`, `BITBUCKET_TARGET_BRANCH` | remote and base branch |
-| `PREPARE_BRANCH_BEFORE_PR` | fetch, fast-forward the base and `checkout -B` the plan's branch before coding |
+| `RUNS_ROOT` | where each run's git worktrees live, as `<root>/<issue key>/<repo name>` (default `data/runs`). They hold uncommitted work while a run waits at a gate, so keep it on storage that survives restarts |
 | `PR_CREATION_ENABLED` | show *Create PR* and allow commit/push/PR (`CREATE_PR` is accepted as an alias) |
 | `BITBUCKET_BASE_URL`, `BITBUCKET_WORKSPACE`, `BITBUCKET_REPO_SLUG`, `BITBUCKET_TOKEN` or `BITBUCKET_USERNAME` + `BITBUCKET_APP_PASSWORD` | Bitbucket Cloud API. `BITBUCKET_REPO_SLUG` and `BITBUCKET_TARGET_BRANCH` are per-repo defaults that `repos.json` can override |
 

@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (39 tests); every external system is faked
+pytest -q                                    # full suite (44 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -63,7 +63,7 @@ calls `scripts/check.sh`, so add a new check there, not in the workflow.
 ## Working agreement
 
 The project plan in Claude Docs is the single source of truth
-(https://claude.ai/code/artifact/7a0153b7-80f4-47ba-9ea5-135769b99660): requirements R-01..R-49 live in
+(https://claude.ai/code/artifact/78083046-a888-49ef-b35b-f8ea7620df7a): requirements R-01..R-55 live in
 its Requirements tab. Every change starts from a requirement on a feature branch cut from `main`
 (`r-37-foundations`), commits are named `R-37: <imperative summary>`, and work reaches `main` only
 through a pull request with green CI. Update the plan's status and Changelog with the change.
@@ -85,6 +85,8 @@ A Jira issue becomes a reviewed PR through a LangGraph `StateGraph` that pauses 
 - `service.py` (`AutomationService`) owns run lifecycle: it compiles the graph with a checkpointer, runs
   each invocation as a background asyncio task keyed by issue key, validates decisions and assembles the
   status dict the UI polls.
+- `workspace.py` (`RunWorkspaces`) gives each run its own git worktree per repository under `RUNS_ROOT`;
+  the service removes them when a run ends. The configured clones are only ever fetched.
 - `main.py` is a thin FastAPI layer over `AutomationService`, plus the SPA fallback route.
 - `registry.py` is a *separate* small `runs` table (SQLite or Postgres, chosen the same way as the
   checkpointer) so `/api/runs` can list runs without scanning checkpoints. Keep both backends in sync.
@@ -117,13 +119,20 @@ is what the single-repo deployments and most tests rely on.
 `REPOS_ROOT` (set to `/workspace` in the image) makes every clone live at `<root>/<name>` and
 ignores the `path` in `repos.json`, so one file works on the host and in a container. The Docker
 entrypoint then runs `python -m pi_jira_agent.repo_setup` on `serve` only — never for `demo`, which
-fakes git — to clone whatever is missing. That step is deliberately non-fatal.
+works on throwaway repositories — to clone whatever is missing. That step is deliberately non-fatal.
 
 `GraphState["repos"]` stores repo *names* only; `graph/build.py` builds the `RepoConfig` registry
-and the per-repo `GitBranchClient` / `BitbucketClient` maps once at startup, and nodes resolve them
-through `graph/repo_context.py`. Consequently **editing `repos.json` needs a restart**.
+and the per-repo `BitbucketClient` map once at startup, and nodes resolve them through
+`graph/repo_context.py`; the `GitBranchClient` for a run's worktree comes from `RunWorkspaces.git()`. Consequently **editing `repos.json` needs a restart**.
 
-The first selected repo (in `repos.json` order, not click order) is the *primary*: it is the Pi
+A run never edits a configured clone. `prepare_workspace` (between `scope_check` and
+`planning_agent`) fetches and creates a detached worktree at `origin/<target_branch>` in
+`<RUNS_ROOT>/<issue key>/<repo>`, and records the commit in `GraphState["base_shas"]`. Worktree paths
+are derived, never stored. `AutomationService._release_workspace` removes them when a run ends in
+`done`, `failed` or `cancelled`; a `stuck_error` run keeps them, and a missing worktree raises instead
+of being recreated empty.
+
+The first selected repo (in `repos.json` order, not click order) is the *primary*: its worktree is the Pi
 session's `cwd`, because `bash` has only one working directory. Everything else is addressed by
 absolute path, which works because Pi's tools resolve absolute paths as given — `resolveToCwd` in
 the SDK does not sandbox to `cwd`. That also means containment is only checked after the fact, in
@@ -166,10 +175,10 @@ would silently enable bash/edit/write, so that assignment is what makes plan mod
 produced, `validatePlan` rejects steps whose file does not exist or that the agent never opened with `read`,
 and feeds the problems back for up to `PLAN_MAX_CORRECTIONS` rounds.
 
-The coding agent does not produce the diff; `git_client.GitBranchClient.diff()` reads the working tree of
-each selected repo after the agent runs. Nothing is committed until `pr_node`, so those working trees
-still hold every phase's changes. `PREPARE_BRANCH_BEFORE_PR` makes the coding node create the branch on
-its first pass only, in every selected repo.
+The coding agent does not produce the diff; `git_client.GitBranchClient.diff()` reads the run's worktree of
+each selected repo after the agent runs. Nothing is committed until `pr_node`, so those worktrees
+still hold every phase's changes. The coding node creates the plan's branch on its first pass only, in
+every selected repo's worktree, and `pr_node` force-pushes it.
 
 ### Configuration
 
@@ -183,7 +192,10 @@ must stay free of secrets.
 
 `tests/conftest.py` sets the whole test environment at import time and `install_fakes()` monkeypatches every
 external system: both LLM stages (`FakeLLM`, which scripts a review rejection then an approval and one
-out-of-scope finding), `PiAgentExecutor.run_with_mode` (`FakeRunner`, which returns a two-phase plan), the Jira
-client, `GitBranchClient` and Bitbucket. Tests drive real graph execution end to end and use `wait_paused()` to
+out-of-scope finding), `PiAgentExecutor.run_with_mode` (`FakeRunner`, which returns a two-phase plan and, in
+execute mode, appends a line to each file the plan names), the Jira client and Bitbucket. Git is not faked:
+conftest builds two real repositories (`web`, `api`), each with a bare `origin`, in a temp directory, and the
+real `GitBranchClient` and worktrees run against them; `git()`, `remote_branches()`, `base_clone()` and
+`runs_root()` let a test inspect the result. Tests drive real graph execution end to end and use `wait_paused()` to
 poll until the background task stops. `scripts/demo_server.py` reuses the same fakes, so a change to the fakes
 changes the demo too.

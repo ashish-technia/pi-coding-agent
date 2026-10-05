@@ -62,6 +62,7 @@ Key behaviours:
 | `review_agent` | Injects error message into `review_feedback`; next review attempt includes this context |
 | `coding_agent` | Increments `retry_count`; re-runs the node from checkpoint as-is |
 | `planning_agent` | Re-runs planning from checkpoint |
+| `prepare_workspace` | Fetches again and creates any worktree that is not there yet |
 
 `retry_count` tracks error-based retries separately from `iteration` (review loop counter). Both are visible in `/status`.
 

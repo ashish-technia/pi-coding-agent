@@ -144,9 +144,13 @@ class Settings(BaseSettings):
         description="Git host used to derive clone URLs when a repo has no explicit clone_url.",
     )
     git_remote_name: str = Field(default="origin", description="Git remote name for push/fetch.")
-    prepare_branch_before_pr: bool = Field(
-        default=True,
-        description="Create/switch the source branch in the local repo before coding.",
+    runs_root: str = Field(
+        default="data/runs",
+        description=(
+            "Where each run's git worktrees live, as <RUNS_ROOT>/<issue key>/<repo name>. "
+            "They hold uncommitted work while a run waits at a gate, so this must survive "
+            "restarts (a volume in Docker)."
+        ),
     )
     pr_creation_enabled: bool = Field(
         default=False,
@@ -377,7 +381,7 @@ class Settings(BaseSettings):
                 "local_path": self.repo_local_path,
                 "remote": self.git_remote_name,
                 "target_branch": self.bitbucket_target_branch,
-                "prepare_branch_before_pr": self.prepare_branch_before_pr,
+                "runs_root": self.runs_root,
                 "config_path": self.repos_config_path,
             },
             # The picker the UI renders as checkboxes on the start form.
