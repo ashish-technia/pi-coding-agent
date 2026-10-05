@@ -66,6 +66,7 @@ class GraphState(TypedDict, total=False):
     status: Status
     current_node: str | None  # persisted so restarts can show where the run is
     retry_count: int  # error-based retries (distinct from the review loop)
+    auto_resumes: int  # times the service resumed this run by itself after a restart
     error: str | None
 
 
@@ -118,6 +119,7 @@ def initial_state(
             "status": "fetching",
             "current_node": None,
             "retry_count": 0,
+            "auto_resumes": 0,
             "error": None,
         },
     )

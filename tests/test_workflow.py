@@ -592,3 +592,114 @@ async def test_retry_is_refused_while_the_run_is_running(service, fakes):
         fakes["runner"].gate.set()
     assert (await wait_paused(service, key))["status"] == "pending_plan"
     assert len(fakes["runner"].calls) == 1
+
+
+async def _restart(old):
+    """Stop a service the way a deploy does and bring a new one up on the same storage."""
+    from pi_jira_agent.service import AutomationService
+
+    await old.stop()
+    new = AutomationService()
+    await new.start()
+    return new
+
+
+async def _wait_for_execute_calls(fakes, count: int) -> None:
+    import asyncio
+
+    for _ in range(500):
+        if len([c for c in fakes["runner"].calls if c["execute"]]) >= count:
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"the coding agent was not called {count} time(s)")
+
+
+async def test_interrupted_run_resumes_once_after_a_restart(fakes):
+    import asyncio
+
+    from pi_jira_agent.service import AutomationService
+
+    svc = AutomationService()
+    await svc.start()
+    try:
+        key = _key()
+        fakes["llm"].review_script = [True]
+        fakes["runner"].phases = False
+        await svc.start_run(key)
+        await wait_paused(svc, key)
+        await svc.submit_decision(key, {"action": "approve"})
+        await wait_paused(svc, key)
+
+        # The service goes down while the coding agent is mid-session, its edits on disk.
+        fakes["runner"].execute_gate = asyncio.Event()
+        await svc.submit_decision(key, {"action": "approve", "mode": "all"})
+        await _wait_for_execute_calls(fakes, 1)
+        svc = await _restart(svc)
+
+        # Restart 1: the run is picked up without anyone asking, and goes down again mid-session.
+        await _wait_for_execute_calls(fakes, 2)
+        assert (await svc.get_status(key))["running"] is True
+        svc = await _restart(svc)
+
+        # Restart 2: it already had its one automatic resume, so it waits for a person.
+        status = await svc.get_status(key)
+        assert status["running"] is False and status["status"] == "stuck_error"
+        assert "interrupted" in status["error"] and status["stuck_on"] == ["coding_agent"]
+        assert len([c for c in fakes["runner"].calls if c["execute"]]) == 2
+
+        fakes["runner"].execute_gate = None
+        await svc.retry(key)
+        status = await wait_paused(svc, key)
+        assert status["status"] == "pending_final"
+        attempts = [line for line in status["diffs"]["web"].splitlines() if line.startswith(f"+# {key} attempt")]
+        assert len(attempts) == 2, "one line per file: the two interrupted sessions' edits were discarded"
+    finally:
+        await svc.stop()
+
+
+async def test_run_waiting_at_a_gate_is_left_alone_by_a_restart(fakes):
+    from pi_jira_agent.service import AutomationService
+
+    svc = AutomationService()
+    await svc.start()
+    try:
+        key = _key()
+        await svc.start_run(key)
+        before = await wait_paused(svc, key)
+        svc = await _restart(svc)
+        after = await svc.get_status(key)
+        assert after["running"] is False and after["status"] == "pending_requirements"
+        assert after["pending"]["gate_id"] == before["pending"]["gate_id"]
+        assert fakes["llm"].framing_calls == 1
+    finally:
+        await svc.stop()
+
+
+async def test_run_interrupted_in_its_first_node_resumes_after_a_restart(fakes, monkeypatch):
+    import asyncio
+
+    from pi_jira_agent import jira_client
+    from pi_jira_agent.service import AutomationService
+
+    real_get_issue = jira_client.JiraClient.get_issue
+    hold = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def held_get_issue(self, key):
+        entered.set()
+        await hold.wait()
+        return await real_get_issue(self, key)
+
+    monkeypatch.setattr(jira_client.JiraClient, "get_issue", held_get_issue)
+    svc = AutomationService()
+    await svc.start()
+    try:
+        key = _key()
+        await svc.start_run(key)
+        await entered.wait()
+        hold.set()  # the restarted service must not be held as well
+        svc = await _restart(svc)
+        status = await wait_paused(svc, key)
+        assert status["status"] == "pending_requirements" and status["auto_resumes"] == 1
+    finally:
+        await svc.stop()

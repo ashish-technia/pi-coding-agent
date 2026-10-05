@@ -82,6 +82,13 @@ This gives the coding agent specific guidance on what to fix in the next attempt
 | `iteration` | Incremented by 1 |
 | `current_node` | `"coding_agent"` |
 
+## Leftovers of an interrupted pass
+
+Before anything else the node compares each worktree with what the last finished coding pass left
+(`tree_shas`, or the base commit before the first pass). If they differ, a previous pass was cut
+short by a restart, and the worktree is put back with `GitBranchClient.restore()` so the agent
+starts from a known state. On a normal pass the two are equal and nothing happens.
+
 ## Worktree and branch
 
 The node never edits the configured clone. `prepare_workspace` (the node before planning) fetched

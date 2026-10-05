@@ -42,7 +42,8 @@ Full status:
 | `repos` | repo names this run works in, primary first |
 | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → the run's worktree diff, new files included; `phase_diffs` holds one such map per accepted phase, each with only that phase's changes |
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
-| `error`, `stuck_on` | present when `status == "stuck_error"` |
+| `error`, `stuck_on` | present when `status == "stuck_error"`: a node raised, or the run was interrupted by a restart and already had its one automatic resume |
+| `auto_resumes` | how often the service resumed the run by itself after a restart (0 or 1) |
 
 ### `POST /api/runs/{key}/decision`
 

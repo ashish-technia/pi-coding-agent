@@ -212,6 +212,7 @@ class FakeRunner:
         self.calls: list[dict] = []
         self.phases = True
         self.gate = None  # an asyncio.Event a test sets to hold every plan call until it is released
+        self.execute_gate = None  # the same for execute calls, held after the files were edited
 
     async def __call__(
         self,
@@ -249,6 +250,8 @@ class FakeRunner:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with target.open("a", encoding="utf-8", newline="\n") as handle:
                     handle.write(f"# {issue.key} attempt {len(self.calls)}\n")
+            if self.execute_gate is not None:
+                await self.execute_gate.wait()
             return AgentResult(
                 branch_name=branch_name or "feature/x",
                 commit_message="TEST-1: implement",

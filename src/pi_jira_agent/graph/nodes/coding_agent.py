@@ -53,6 +53,33 @@ def make_coding_agent(
             repo.name: workspaces.git(key, repo.name) for repo in repos if repo.path.strip()
         }
 
+        # A coding pass that was cut short (the service went down mid-session) leaves half an
+        # edit behind, and the node runs again from the top. Put each worktree back to what
+        # the last finished pass left: its snapshot, or the base commit before the first one.
+        base_shas = state.get("base_shas") or {}
+        last_trees = state.get("tree_shas") or {}
+
+        def discard_leftovers() -> list[str]:
+            restored = []
+            for name, git_branch in git_clients.items():
+                expected = git_branch.tree_of(last_trees.get(name) or base_shas.get(name) or "")
+                if expected and git_branch.snapshot() != expected:
+                    git_branch.restore(expected)
+                    restored.append(name)
+            return restored
+
+        restored = await asyncio.to_thread(discard_leftovers)
+        if restored:
+            logger.warning("Discarded an interrupted coding pass for %s in repo(s) %s", issue.key, ", ".join(restored))
+            progress.add_event(
+                issue.key,
+                {
+                    "source": "git",
+                    "ev": "restore",
+                    "text": f"discarded an interrupted coding pass in {', '.join(restored)}",
+                },
+            )
+
         first_pass = phase_index == 0 and iteration == 0
         if first_pass:
             # The worktree was created detached, before the plan named a branch. The same
@@ -89,7 +116,6 @@ def make_coding_agent(
         # change made for this issue so far. Repos left untouched stay out of the map.
         # `diffs` is the whole change so far, for the human; `phase_diff` is what this phase
         # added on top of the tree the previous phase ended on, for the reviewer.
-        base_shas = state.get("base_shas") or {}
         phase_base = state.get("phase_base") or {}
         tree_shas: dict[str, str] = {}
         diffs: dict[str, str] = {}

@@ -95,6 +95,21 @@ class GitBranchClient:
         finally:
             index.unlink(missing_ok=True)
 
+    def tree_of(self, ref: str) -> str | None:
+        """The tree a commit (or a tree) stands for, or None when the object is not there."""
+        completed = self._run_capture("git", "rev-parse", "--verify", "--quiet", f"{ref}^{{tree}}")
+        return completed.stdout.strip() or None if completed.returncode == 0 else None
+
+    def restore(self, tree: str) -> None:
+        """Make the working tree equal ``tree``: files changed since are reverted, files added since removed.
+
+        Ignored files are left alone, and the index ends up back at HEAD, as it is
+        throughout a run.
+        """
+        self._run("git", "add", "-A")  # so read-tree also knows about files that were never tracked
+        self._run("git", "read-tree", "-u", "--reset", tree)
+        self._run("git", "reset", "-q")
+
     def diff(self, *, base: str = "HEAD", tree: str | None = None) -> str:
         """Everything in ``tree`` (default: a fresh snapshot) that ``base`` (a commit or tree) does not have."""
         completed = self._run_capture("git", "diff", base, tree or self.snapshot())
