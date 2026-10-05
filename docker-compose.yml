@@ -100,7 +100,10 @@ services:
     volumes:
       # Realm, UI client and audience mapper. No users, no secrets.
       - ./docker/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
-      - pijira_keycloak:/opt/keycloak/data/h2
+      # The whole data directory, not data/h2: that subdirectory is not in the image, so
+      # Docker would create the volume owned by root and Keycloak (uid 1000) could not
+      # open its database there.
+      - pijira_keycloak_data:/opt/keycloak/data
 
   postgres:
     image: postgres:16
@@ -136,7 +139,7 @@ services:
 volumes:
   pijira_pgdata:
   # Keycloak's users and sessions.
-  pijira_keycloak:
+  pijira_keycloak_data:
   pijira_data:
   # Cloned repositories. `docker compose down -v` deletes them and they are re-cloned.
   pijira_workspace:
