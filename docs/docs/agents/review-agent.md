@@ -16,7 +16,7 @@ Acts as the code reviewer for every coding pass. It never touches the repository
 - The approved requirement: problem, goals, acceptance criteria, out-of-scope list.
 - The approved plan **for the current phase** (the same slice the coding agent received): per-file steps and the verification list.
 - The team's review rules from `REVIEW_RULES_PATH` (Markdown, "Must" and "Should" sections).
-- The diff, and on retries the previous feedback so it can verify it was addressed.
+- The diff **of the current phase only** (`phase_diff`), and on retries the previous feedback so it can verify it was addressed. In phased mode the earlier phases were reviewed on their own and are not shown again; the prompt says so from the second phase on.
 
 When a run spans several repositories the prompt carries **one labelled diff per repository**
 (`Diff in repo 'web':` …) and the plan steps are shown repo-qualified. This is deliberate: judged

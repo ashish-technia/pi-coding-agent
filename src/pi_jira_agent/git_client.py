@@ -42,6 +42,12 @@ class GitBranchClient:
     def delete_branch(self, name: str) -> bool:
         return self._run_capture("git", "branch", "-D", name).returncode == 0
 
+    def delete_refs(self, prefix: str) -> None:
+        """Delete every ref under ``prefix`` (the snapshots a run kept alive)."""
+        listed = self._run_capture("git", "for-each-ref", "--format=%(refname)", prefix)
+        for ref in listed.stdout.split():
+            self._run_capture("git", "update-ref", "-d", ref)
+
     def has_changes(self) -> bool:
         completed = self._run_capture("git", "status", "--porcelain")
         return bool(completed.stdout.strip())
@@ -55,8 +61,11 @@ class GitBranchClient:
         # earlier run of the same issue has diverged and is overwritten.
         self._run("git", "push", "--force", "-u", self.remote_name, source_branch)
 
-    def snapshot(self) -> str:
+    def snapshot(self, *, keep_as: str | None = None) -> str:
         """The working tree as a git tree object, new files included; returns its SHA.
+
+        ``keep_as`` names a ref to point at the tree, so `git gc` cannot prune a snapshot
+        a later phase still diffs against.
 
         Built in a throwaway index, so nothing is staged in the real one. `git diff HEAD`
         cannot do this job: it leaves out untracked files, which is how files the agent
@@ -79,13 +88,16 @@ class GitBranchClient:
             completed = self._run_capture("git", "write-tree", env=env)
             if completed.returncode != 0 or not completed.stdout.strip():
                 raise RuntimeError(f"git write-tree failed: {completed.stderr}")
-            return completed.stdout.strip()
+            tree = completed.stdout.strip()
+            if keep_as:
+                self._run("git", "update-ref", keep_as, tree)
+            return tree
         finally:
             index.unlink(missing_ok=True)
 
-    def diff(self, *, base: str = "HEAD") -> str:
-        """Everything in the working tree that ``base`` (a commit or tree) does not have."""
-        completed = self._run_capture("git", "diff", base, self.snapshot())
+    def diff(self, *, base: str = "HEAD", tree: str | None = None) -> str:
+        """Everything in ``tree`` (default: a fresh snapshot) that ``base`` (a commit or tree) does not have."""
+        completed = self._run_capture("git", "diff", base, tree or self.snapshot())
         if completed.returncode != 0:
             raise RuntimeError(f"git diff failed: {completed.stderr}")
         return completed.stdout

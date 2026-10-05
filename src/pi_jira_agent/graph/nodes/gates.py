@@ -70,6 +70,7 @@ def await_plan(state: GraphState) -> dict:
             "iteration": 0,
             "review_feedback": "",
             "phase_diffs": [],
+            "phase_base": {},
             "status": "coding",
             "current_node": "await_plan",
         }
@@ -86,7 +87,10 @@ def phase_gate(state: GraphState) -> dict:
     index = state.get("phase_index", 0)
     total = state.get("phases_total", 1)
     diffs = state.get("diffs") or {}
-    phase_diffs = list(state.get("phase_diffs") or []) + [diffs]
+    phase_diff = state.get("phase_diff")
+    if phase_diff is None:  # a checkpoint written before phases had their own diff
+        phase_diff = diffs
+    phase_diffs = list(state.get("phase_diffs") or []) + [phase_diff]
     code_result = state.get("code_result")
 
     if mode != "phased" or index + 1 >= total:
@@ -100,6 +104,7 @@ def phase_gate(state: GraphState) -> dict:
             "phases_total": total,
             "files_changed": code_result.files_changed if code_result else [],
             "diffs": diffs,
+            "phase_diff": phase_diff,
             "review_feedback": state.get("review_feedback", ""),
             "review_omitted_files": state.get("review_omitted_files") or [],
         }
@@ -107,6 +112,8 @@ def phase_gate(state: GraphState) -> dict:
     if decision.get("action") == "continue":
         return {
             "phase_diffs": phase_diffs,
+            # The next phase is diffed against the tree this one ended on.
+            "phase_base": state.get("tree_shas") or {},
             "phase_index": index + 1,
             "iteration": 0,
             "review_feedback": "",

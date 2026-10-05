@@ -37,7 +37,7 @@ and the module list at the end of it are easy to leave behind.
 ```bash
 scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
 scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
-pytest -q                                    # full suite (48 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (49 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -138,7 +138,10 @@ absolute path, which works because Pi's tools resolve absolute paths as given â€
 the SDK does not sandbox to `cwd`. That also means containment is only checked after the fact, in
 the runner; there is no pre-tool hook in this build.
 
-Anything per-repo is keyed by name: `diffs`, `phase_diffs`, `pr_urls`. Phases slice the plan by
+Anything per-repo is keyed by name: `diffs`, `phase_diff`, `phase_diffs`, `tree_shas`, `phase_base`, `pr_urls`.
+`diffs` is the whole change so far (for the human); `phase_diff` is what the current phase added (for the
+reviewer). `phase_gate` copies `tree_shas` into `phase_base` on continue; it cannot take the snapshot
+itself, because a gate must stay pure. Phases slice the plan by
 stage, not by repository â€” one coding session edits every repo in the same pass, so both sides of
 a cross-repo change land and are reviewed together.
 

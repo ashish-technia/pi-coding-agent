@@ -111,6 +111,8 @@ export type Pending =
       files_changed: string[]
       /** Working-tree diff per repo; repos with no changes are absent. */
       diffs: Record<string, string>
+      /** What this phase alone changed, per repo: the part the review just judged. */
+      phase_diff?: Record<string, string>
       review_feedback: string
       /** Changed files the review did not see because the diff was over the size limit. */
       review_omitted_files?: string[]

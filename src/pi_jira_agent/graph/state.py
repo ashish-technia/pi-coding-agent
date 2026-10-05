@@ -48,7 +48,10 @@ class GraphState(TypedDict, total=False):
     # --- Coding / review loop -------------------------------------------
     code_result: AgentResult
     diffs: dict[str, str]  # repo name -> cumulative worktree diff; repos with no changes are absent
-    phase_diffs: list[dict[str, str]]  # diff snapshot per repo, recorded after each accepted phase
+    phase_diff: dict[str, str]  # repo name -> what the current phase changed; this is what the reviewer sees
+    phase_diffs: list[dict[str, str]]  # one `phase_diff` per accepted phase
+    tree_shas: dict[str, str]  # repo name -> tree snapshot of the worktree after the last coding pass
+    phase_base: dict[str, str]  # repo name -> tree the current phase started from; empty in the first phase
     review_approved: bool
     review_feedback: str
     review_omitted_files: list[str]  # changed files the last review did not see (diff over the size limit)

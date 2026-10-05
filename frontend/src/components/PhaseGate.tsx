@@ -24,6 +24,13 @@ export default function PhaseGate({ pending, busy, onDecide }: { pending: PhaseP
         ))}
       </p>
       <PartialReviewNote files={pending.review_omitted_files} />
+      {pending.phase_diff && (
+        <>
+          <p className="small muted">This phase (what the review just judged):</p>
+          <DiffViewer diffs={pending.phase_diff} />
+          <p className="small muted">Everything so far:</p>
+        </>
+      )}
       <DiffViewer diffs={pending.diffs} />
       <div className="actions">
         <button className="success" disabled={busy} onClick={() => onDecide({ action: 'continue' })}>

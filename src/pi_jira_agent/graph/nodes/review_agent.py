@@ -121,6 +121,7 @@ def _build_review_prompt(
     iteration: int,
     previous_feedback: str,
     omitted_files: list[str] | None = None,
+    earlier_phases: int = 0,
 ) -> str:
     parts = [f"Jira issue: {issue.key} - {issue.summary}"]
     if requirements:
@@ -156,6 +157,12 @@ def _build_review_prompt(
             f"This is retry attempt {iteration}. Previous review feedback that must be addressed:",
             f"  {previous_feedback}",
         ]
+    if earlier_phases:
+        parts += [
+            "",
+            f"This is phase {earlier_phases + 1}. The diff holds only this phase's changes; the "
+            f"{earlier_phases} earlier phase(s) were reviewed separately and are already in the code.",
+        ]
     if omitted_files:
         parts += [
             "",
@@ -174,7 +181,12 @@ def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -
     async def review_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         progress.mark(issue.key, "review_agent")
-        diffs, omitted_files = cap_diffs(state.get("diffs") or {}, max_diff_chars)
+        # Only this phase's changes: earlier phases passed their own review, and judging
+        # them again against this phase's plan steps produced spurious rejections.
+        phase_diff = state.get("phase_diff")
+        diffs, omitted_files = cap_diffs(
+            phase_diff if phase_diff is not None else state.get("diffs") or {}, max_diff_chars
+        )
         iteration = state.get("iteration", 0)
         previous_feedback = state.get("review_feedback", "")
         plan = state.get("plan_result")
@@ -206,6 +218,7 @@ def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -
                         iteration=iteration,
                         previous_feedback=previous_feedback,
                         omitted_files=omitted_files,
+                        earlier_phases=(state.get("phase_index", 0) if state.get("execution_mode") == "phased" else 0),
                     )
                 ),
             ]
