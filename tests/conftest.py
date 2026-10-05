@@ -291,6 +291,10 @@ def install_fakes(monkeypatch) -> dict:
     llm = FakeLLM()
     runner = FakeRunner()
     prs: list[dict] = []
+    comments: dict[str, list[str]] = {}  # issue key -> comments the agent posted
+    transitions: list[str] = []
+    # A test puts a repo slug (or "transition") here to make that call fail once.
+    fail_once: set[str] = set()
 
     monkeypatch.setattr(build_mod, "make_requirements_llm", lambda: llm)
     monkeypatch.setattr(build_mod, "make_review_llm", lambda: llm)
@@ -307,19 +311,33 @@ def install_fakes(monkeypatch) -> dict:
             description="Client should retry transient errors.",
             project_key=key.split("-")[0],
             reporter="Ana",
-            comments=[JiraComment(author="Sam", created="2026-09-01", body="Max 3 attempts please.")],
+            comments=[
+                JiraComment(author="Sam", created="2026-09-01", body="Max 3 attempts please."),
+                *[JiraComment(author="agent", created="2026-09-02", body=body) for body in comments.get(key, [])],
+            ],
             url=f"https://jira.invalid/browse/{key}",
         )
 
     async def fake_add_comment(self, key, body):
+        comments.setdefault(key, []).append(body)
         return "1"
+
+    async def fake_transition(self, key, transition_id):
+        if "transition" in fail_once:
+            fail_once.discard("transition")
+            raise RuntimeError("Jira transition failed (scripted)")
+        transitions.append(f"{key}:{transition_id}")
 
     monkeypatch.setattr(jira_client.JiraClient, "get_issue", fake_get_issue)
     monkeypatch.setattr(jira_client.JiraClient, "add_comment", fake_add_comment)
+    monkeypatch.setattr(jira_client.JiraClient, "transition_issue", fake_transition)
 
     # Git is not faked: the repos above are real, and each run gets real worktrees.
 
     async def fake_create_pr(self, *, title, description, source_branch, destination_branch):
+        if self.repo_slug in fail_once:
+            fail_once.discard(self.repo_slug)
+            raise RuntimeError(f"Bitbucket PR create failed for {self.repo_slug} (scripted)")
         prs.append(
             {
                 "title": title,
@@ -331,9 +349,23 @@ def install_fakes(monkeypatch) -> dict:
         )
         return PullRequestResult(pr_id=7, pr_url=f"https://bitbucket.invalid/{self.repo_slug}/pr/7")
 
-    monkeypatch.setattr(bitbucket_client.BitbucketClient, "create_pull_request", fake_create_pr)
+    async def fake_find_open_pr(self, *, source_branch, destination_branch):
+        for pr in prs:
+            if (pr["slug"], pr["source"], pr["dest"]) == (self.repo_slug, source_branch, destination_branch):
+                return PullRequestResult(pr_id=7, pr_url=f"https://bitbucket.invalid/{self.repo_slug}/pr/7")
+        return None
 
-    return {"llm": llm, "runner": runner, "prs": prs}
+    monkeypatch.setattr(bitbucket_client.BitbucketClient, "create_pull_request", fake_create_pr)
+    monkeypatch.setattr(bitbucket_client.BitbucketClient, "find_open_pull_request", fake_find_open_pr)
+
+    return {
+        "llm": llm,
+        "runner": runner,
+        "prs": prs,
+        "comments": comments,
+        "transitions": transitions,
+        "fail_once": fail_once,
+    }
 
 
 @pytest.fixture

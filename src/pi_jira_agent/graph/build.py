@@ -14,7 +14,7 @@ from .nodes.coding_agent import make_coding_agent
 from .nodes.fetch_issue import make_fetch_issue
 from .nodes.gates import await_plan, await_requirements, make_await_final, phase_gate
 from .nodes.planning_agent import make_planning_agent
-from .nodes.pr_node import make_pr_node
+from .nodes.pr_node import make_announce_node, make_pr_node
 from .nodes.requirements_agent import make_requirements_agent, make_scope_check
 from .nodes.review_agent import make_review_agent
 from .nodes.workspace import make_prepare_workspace
@@ -145,13 +145,11 @@ def build_graph():
     )
     graph.add_node("phase_gate", phase_gate)
     graph.add_node("await_final", make_await_final(pr_enabled=settings.pr_enabled))
+    graph.add_node("pr_node", make_pr_node(bitbucket_clients, workspaces, repo_map))
     graph.add_node(
-        "pr_node",
-        make_pr_node(
-            bitbucket_clients,
+        "announce_node",
+        make_announce_node(
             jira,
-            workspaces,
-            repo_map,
             jira_transition_done_id=settings.jira_transition_done_id,
             comments_enabled=settings.jira_comments_enabled,
         ),
@@ -203,7 +201,8 @@ def build_graph():
         route_after_final_gate,
         {"pr_node": "pr_node", "__end__": END},
     )
-    graph.add_edge("pr_node", END)
+    graph.add_edge("pr_node", "announce_node")
+    graph.add_edge("announce_node", END)
     graph.add_edge("cancelled_node", END)
     graph.add_edge("failed_node", END)
 
