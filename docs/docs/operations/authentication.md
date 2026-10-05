@@ -86,6 +86,12 @@ The app container reaches Keycloak as `http://keycloak:8080`, while browsers use
 `http://localhost:8081`. Tokens carry the browser's address as issuer, so compose sets
 `OIDC_ISSUER` to that address and `OIDC_JWKS_URL` to the in-network one.
 
+Keycloak's users live in the `pijira_keycloak_data` volume, mounted at `/opt/keycloak/data`. If the
+Keycloak container exits with `AccessDeniedException: /opt/keycloak/data/h2/keycloakdb.mv.db`, it
+is running an older compose file that mounted a volume at `data/h2`, which Docker creates owned by
+root. Update the file, run `docker compose up -d keycloak`, and remove the unused volume with
+`docker volume rm pi-jira-agent_pijira_keycloak`.
+
 Keycloak here runs with `start-dev` (HTTP, embedded database in a volume). That is fine for a
 laptop and a pilot behind a VPN. For anything else, run Keycloak in production mode behind TLS, or
 point the three settings at an issuer your organisation already operates.
