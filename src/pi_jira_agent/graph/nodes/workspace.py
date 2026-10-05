@@ -27,7 +27,9 @@ def make_prepare_workspace(workspaces: RunWorkspaces, repo_map: RepoMap) -> Work
         for repo in repos:
             if not repo.path.strip():
                 continue
-            base_shas[repo.name] = await asyncio.to_thread(workspaces.ensure, key, repo)
+            base_shas[repo.name], warning = await asyncio.to_thread(workspaces.ensure, key, repo)
+            if warning:
+                progress.add_event(key, {"source": "git", "ev": "warning", "text": warning})
 
         return {"base_shas": base_shas, "status": "planning", "current_node": "prepare_workspace"}
 
