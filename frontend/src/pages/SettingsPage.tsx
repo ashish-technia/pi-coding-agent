@@ -38,6 +38,8 @@ export default function SettingsPage() {
             <dd>{cfg.pi.timeout_seconds} s</dd>
             <dt>Concurrent agent sessions</dt>
             <dd>{cfg.pi.max_concurrent_runs}</dd>
+            <dt>Extra environment for the agent</dt>
+            <dd className="mono">{cfg.pi.env_passthrough.length ? cfg.pi.env_passthrough.join(', ') : 'none'}</dd>
             <dt>Agent context dir</dt>
             <dd className="mono">{cfg.pi.agent_dir}</dd>
           </dl>

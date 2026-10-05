@@ -46,6 +46,8 @@ repository's absolute path before running its verification commands.
 
 The approved `plan_result` is serialized into the runner payload and rendered into the execute-mode prompt as the agent's work order: its analysis, every `plan_steps` entry, and the verification list. The agent is told to re-read each file before editing, to adapt if the code differs from the plan's evidence, and to run the verification steps with `bash` (tests, linters, imports) and fix what they surface before returning. Because the worktree is a fresh checkout, the prompt also says that dependencies are not installed and that checks needing them should be skipped, not installed for.
 
+The runner is started in its own process group with a minimal environment (see [Configuration](../getting-started/configuration.md)). When a call exceeds `PI_TIMEOUT_SECONDS`, or the service shuts down mid-session, the whole process tree is killed, including anything the agent's `bash` started (`killpg` on Linux, `taskkill /T /F` on Windows).
+
 The Pi call is wrapped in `slots.hold(...)` (`graph/slots.py`), so at most `MAX_CONCURRENT_RUNS` planning or coding sessions run at once.
 
 ## Review feedback loop
