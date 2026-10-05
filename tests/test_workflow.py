@@ -384,3 +384,28 @@ async def test_phase_review_sees_only_that_phases_changes(service, fakes):
     assert "b/tests/test_client.py" in second["web"] and "b/src/client.py" not in second["web"]
     # The human's final diff is still the whole change.
     assert "b/src/client.py" in status["diffs"]["web"] and "b/tests/test_client.py" in status["diffs"]["web"]
+
+
+async def test_failed_review_leaves_a_clean_start_for_the_next_run(service, fakes):
+    """A run that fails review must not leak its edits into the next run on the same repository."""
+    failed = _key()
+    fakes["llm"].review_script = [False, False, False]
+    fakes["runner"].phases = False
+    await service.start_run(failed)
+    await wait_paused(service, failed)
+    await service.submit_decision(failed, {"action": "approve"})
+    await wait_paused(service, failed)
+    await service.submit_decision(failed, {"action": "approve"})
+    status = await wait_paused(service, failed)
+    assert status["status"] == "failed"
+
+    assert not (runs_root() / failed).exists()
+    assert failed not in git(base_clone("web"), "worktree", "list")
+    assert f"feature/{failed}-retry" not in git(base_clone("web"), "branch", "--list")
+    assert git(base_clone("web"), "status", "--porcelain") == ""
+
+    # Running the same issue again starts from the target branch, not from the failed attempt.
+    fakes["llm"].review_calls = 0
+    again = await _to_final_gate(service, fakes, failed)
+    attempts = [line for line in again["diffs"]["web"].splitlines() if line.startswith(f"+# {failed} attempt")]
+    assert len(attempts) == 2, "one line per file from this run only; nothing left from the failed attempts"
