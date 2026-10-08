@@ -164,6 +164,37 @@ export interface PrReview {
   fix_rounds: number
   max_fix_rounds: number
   fix_available: boolean
+  /** A review of a branch on its own: there is no run to send findings back to. */
+  standalone?: boolean
+}
+
+/** A standalone review as the list shows it. */
+export interface ReviewSummary {
+  id: string
+  branch: string
+  repos: string[]
+  issue_key: string
+  status: 'queued' | 'running' | 'done' | 'failed' | 'interrupted'
+  started_by: string
+  error: string
+  commits: Record<string, { head: string; base: string }>
+  created_at: string
+  updated_at: string
+  running: boolean
+  findings: number
+  must: number
+}
+
+export interface Review extends Omit<ReviewSummary, 'findings' | 'must'> {
+  result: {
+    summary: string
+    findings: ReviewFinding[]
+    not_reviewed: string[]
+    dropped_findings: string[]
+    files_changed: string[]
+  } | null
+  node_label: string | null
+  activity: ActivityEvent[]
 }
 
 export interface ActivityEvent {
@@ -344,6 +375,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   config: () => request<AppConfig>('/api/config'),
   listRuns: () => request<RunSummary[]>('/api/runs'),
+  listReviews: () => request<ReviewSummary[]>('/api/reviews'),
+  getReview: (id: string) => request<Review>(`/api/reviews/${encodeURIComponent(id)}`),
+  startReview: (branch: string, repos: string[], issue_key?: string) =>
+    request<Review>('/api/reviews', {
+      method: 'POST',
+      body: JSON.stringify({ branch, repos, ...(issue_key ? { issue_key } : {}) }),
+    }),
+  deleteReview: (id: string) =>
+    request<{ deleted: string }>(`/api/reviews/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   startRun: (
     issue_key: string,
     inline?: { summary: string; description: string; project_key?: string },

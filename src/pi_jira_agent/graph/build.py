@@ -101,7 +101,9 @@ def make_workspaces() -> RunWorkspaces:
     )
 
 
-def build_graph():
+def build_graph(slots: PiSlots | None = None):
+    """``slots`` is shared with whatever else starts Pi sessions (standalone reviews), so
+    MAX_CONCURRENT_RUNS caps all of them together."""
     jira = make_jira_client()
 
     # Everything per *configured* repo is built once here. A run picks a subset by name
@@ -109,7 +111,7 @@ def build_graph():
     repos = settings.repos()
     repo_map = {r.name: r for r in repos}
     workspaces = make_workspaces()
-    slots = PiSlots(settings.max_concurrent_runs)
+    slots = slots or PiSlots(settings.max_concurrent_runs)
     bitbucket_clients = {
         r.name: BitbucketClient(
             base_url=settings.bitbucket_base_url,

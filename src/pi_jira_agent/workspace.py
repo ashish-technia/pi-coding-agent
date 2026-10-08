@@ -119,6 +119,45 @@ class RunWorkspaces:
         logger.info("Worktree for %s in repo %s at %s (%s @ %s)", issue_key, repo.name, target, ref, sha[:10])
         return sha
 
+    # ------------------------------------------------------------------ standalone reviews
+    def branch_head(self, repo: RepoConfig, branch: str, *, fetch: bool = True) -> str | None:
+        """The commit ``branch`` points at in ``repo`` (the remote's copy first), or None."""
+        if not repo.path.strip() or not (Path(repo.path) / ".git").exists():
+            return None
+        base = self._base(repo)
+        if fetch and base.has_remote():
+            try:
+                base.fetch()
+            except RuntimeError as exc:  # offline: review what was last fetched
+                logger.warning("Could not fetch %s before a review: %s", repo.name, exc)
+        return base.resolve(f"{self.remote_name}/{branch}") or base.resolve(f"refs/heads/{branch}")
+
+    def checkout_branch(self, key: str, repo: RepoConfig, branch: str) -> dict[str, str]:
+        """A detached worktree of ``repo`` at ``branch``, for a review.
+
+        Returns ``{"head": ..., "base": ...}``: the branch's commit, and the commit it last
+        shared with the repository's target branch. The review covers base to head, which is
+        what a pull request of the branch would show.
+        """
+        base = self._base(repo)
+        head = self.branch_head(repo, branch, fetch=False)
+        if not head:
+            raise RuntimeError(f"Branch {branch!r} does not exist in repo {repo.name!r}.")
+        target = base.resolve(f"{self.remote_name}/{repo.target_branch}") or base.resolve(repo.target_branch)
+        fork = base.merge_base(target, head) if target else None
+        if not fork:
+            raise RuntimeError(
+                f"Branch {branch!r} of repo {repo.name!r} shares no history with {repo.target_branch!r}, "
+                "so there is no change to review."
+            )
+        path = self.path(key, repo.name)
+        if path.exists():
+            shutil.rmtree(path, ignore_errors=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        base.add_worktree(path, head)
+        logger.info("Review worktree %s in repo %s at %s (%s..%s)", key, repo.name, path, fork[:10], head[:10])
+        return {"head": head, "base": fork}
+
     def remove(self, issue_key: str, *, branch: str | None = None) -> None:
         """Remove every worktree of a run and its local run branch. Safe when nothing is there."""
         run_dir = self.run_dir(issue_key)

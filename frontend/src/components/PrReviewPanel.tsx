@@ -113,7 +113,8 @@ export default function PrReviewPanel({
           </div>
         </>
       ) : (
-        review.findings.length > 0 && (
+        review.findings.length > 0 &&
+        !review.standalone && (
           <p className="small muted">
             The change was sent back {review.fix_rounds} time(s), which is the limit. Create the pull request or
             finish.

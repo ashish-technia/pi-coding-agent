@@ -81,6 +81,40 @@ The body is optional. `{"skip_pr_review": true}` continues a run that is stuck o
 without the review; the final gate then says the change was not reviewed. It is refused with
 `400` when the run is stuck on anything else.
 
+## Standalone reviews
+
+A review of a branch on its own, with no run and no gates. See
+[PR Review Agent](../agents/pr-review-agent.md#reviewing-a-branch-on-its-own).
+
+### `POST /api/reviews`
+
+```json
+{ "branch": "feature/WAAS-643-retry", "repos": ["web", "api"] }
+{ "branch": "feature/WAAS-643-retry", "repos": ["web"], "issue_key": "WAAS-643" }
+```
+
+`repos` are names from `repos.json`; omitted uses the repos flagged `default_selected`.
+`issue_key` is optional: with it the change is judged against that Jira issue. Answers `400`
+when the branch name is not one, a repository is unknown, or the branch is missing in any chosen
+repository; nothing is checked out in that case. Returns the review, whose `id` looks like
+`review-1a2b3c4d`.
+
+### `GET /api/reviews`
+
+Recent reviews, newest first: `id`, `branch`, `repos`, `issue_key`, `status` (`queued`,
+`running`, `done`, `failed`, `interrupted`), `started_by`, `commits`, `running`, and the counts
+`findings` and `must`.
+
+### `GET /api/reviews/{id}`
+
+One review with its `result` (`summary`, `findings[]`, `not_reviewed[]`, `dropped_findings[]`,
+`files_changed[]`, `usage`), the `commits` it covered (`{repo: {head, base}}`), `error` when it
+failed, and the live `activity` while it runs. `404` for an unknown id.
+
+### `DELETE /api/reviews/{id}`
+
+Deletes a finished review and its findings. `409` while it is running, `404` for an unknown id.
+
 ### `GET /api/auth/config`
 
 Open, no token needed. `{"mode": "none"}`, or `{"mode": "oidc", "issuer", "client_id", "scope"}`:

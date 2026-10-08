@@ -24,6 +24,13 @@ class GitBranchClient:
             return None
         return completed.stdout.strip() or None
 
+    def merge_base(self, a: str, b: str) -> str | None:
+        """The commit two refs last had in common, or None when they share no history."""
+        completed = self._run_capture("git", "merge-base", a, b)
+        if completed.returncode != 0:
+            return None
+        return completed.stdout.strip() or None
+
     def add_worktree(self, path: Path, ref: str) -> None:
         """A detached worktree at ``ref``. Pruning first clears a registration whose directory is gone."""
         self._run("git", "worktree", "prune")
