@@ -23,6 +23,31 @@ def _partial_review_note(interrupt_value: dict) -> list[str]:
     return [f"The review saw a partial diff. Not reviewed (too large): {', '.join(omitted)}"]
 
 
+def _pr_review_lines(review: dict) -> list[str]:
+    """The PR review as text for the final-gate comment."""
+    if not review.get("enabled"):
+        return []
+    if review.get("skipped"):
+        return ["", "The review of the whole change did NOT run (it failed and the run was continued without it)."]
+    lines = ["", "Review of the whole change:"]
+    if review.get("summary"):
+        lines.append(review["summary"])
+    if review.get("resolved"):
+        lines.append(f"Fixed since the last review: finding(s) {', '.join(map(str, review['resolved']))}.")
+    findings = review.get("findings") or []
+    if not findings:
+        lines.append("No findings.")
+    for f in findings:
+        where = f"{f['repo']}/{f['file']}" if f.get("repo") else f.get("file", "")
+        location = f"{where}:{f['line']} " if where and f.get("line") else f"{where} " if where else ""
+        lines.append(f"  {f['number']}. [{f['severity']}] {location}{f['claim']}")
+    if review.get("not_reviewed"):
+        lines.append(f"Not reviewed (the reviewer never opened them): {', '.join(review['not_reviewed'])}")
+    if findings and not review.get("fix_available"):
+        lines.append("The change cannot be sent back again: the limit of fix rounds is reached.")
+    return lines
+
+
 def render_pending(interrupt_value: dict) -> str:
     kind = interrupt_value.get("type")
     if kind == "requirements_approval":
@@ -73,12 +98,14 @@ def render_pending(interrupt_value: dict) -> str:
             f"Files changed: {', '.join(interrupt_value.get('files_changed', [])) or '-'}",
             f"Diff size: {interrupt_value.get('diff_lines', 0)} lines (open the UI to inspect it).",
             *_partial_review_note(interrupt_value),
+            *_pr_review_lines(interrupt_value.get("pr_review") or {}),
         ]
         if not interrupt_value.get("pr_enabled", False):
             lines.append("Pull request creation is disabled in this environment; only /finish is available.")
     else:
         lines = [f"Waiting for input ({kind})."]
-    lines += ["", command_help(cast(str, kind))]
+    fix = bool((interrupt_value.get("pr_review") or {}).get("fix_available"))
+    lines += ["", command_help(cast(str, kind), fix=fix)]
     return "\n".join(lines)
 
 

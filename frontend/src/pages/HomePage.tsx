@@ -7,6 +7,7 @@ export default function HomePage() {
   const navigate = useNavigate()
   const [issueKey, setIssueKey] = useState('')
   const [manual, setManual] = useState(false)
+  const [prReview, setPrReview] = useState(true)
   const [summary, setSummary] = useState('')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
@@ -35,6 +36,7 @@ export default function HomePage() {
         if (!alive) return
         setRepos(cfg.repos)
         setSelected(cfg.repos.filter((r) => r.default_selected).map((r) => r.name))
+        setPrReview(cfg.pr_review?.default ?? true)
       })
       .catch(() => {})
     return () => {
@@ -52,7 +54,7 @@ export default function HomePage() {
     if (!key) return
     setBusy(true)
     try {
-      await api.startRun(key, manual && summary.trim() ? { summary, description } : undefined, selected)
+      await api.startRun(key, manual && summary.trim() ? { summary, description } : undefined, selected, prReview)
       navigate(`/runs/${encodeURIComponent(key)}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -115,6 +117,13 @@ export default function HomePage() {
                 )}
               </div>
             )}
+            <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10 }}>
+              <input type="checkbox" checked={prReview} onChange={(e) => setPrReview(e.target.checked)} />
+              <span>
+                Review the whole change before the final gate{' '}
+                <span className="muted">(a second, read-only agent checks it against the requirement)</span>
+              </span>
+            </label>
             <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10 }}>
               <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
               Provide the issue text manually (no Jira access)

@@ -38,7 +38,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (86 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (96 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -116,6 +116,12 @@ passes the id of the gate it parsed the command against and drops a `comment_id`
 
 On resume LangGraph re-executes the interrupted node from the top, so **gate functions must be pure
 before their `interrupt` call**.
+
+The final gate has a third action, `fix`, which only makes sense with a PR review: `resolve_fix` in
+`decisions.py` checks it against the pending payload's `pr_review` block (the service calls it, the gate
+trusts it). `pr_review` is an ordinary node, not a gate: `phase_gate` routes to it when
+`pr_review_enabled`, and `coding_agent` routes to it instead of `review_agent` while `fix_request` is set.
+Its result is advisory; nothing in the graph branches on the findings.
 
 Adding or changing a gate touches, at minimum: `graph/decisions.py` (model + `ALLOWED_ACTIONS` +
 `command_help` + `parse_comment_command`), `graph/nodes/gates.py`, the router in `graph/orchestrator.py`,

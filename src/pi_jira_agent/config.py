@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .models import RepoConfig
 
-Stage = Literal["requirements", "planning", "coding", "review"]
+Stage = Literal["requirements", "planning", "coding", "review", "pr_review"]
 
 
 class StageModelConfig(BaseModel):
@@ -157,6 +157,35 @@ class Settings(BaseSettings):
     review_max_iterations: int = Field(
         default=2,
         description="Max coding/review retry loops per phase before giving up.",
+    )
+    # --- PR review: the whole-change review before the final gate (R-56) -----
+    # A read-only Pi session. Its model falls back to the review model, never to the
+    # coder's, so the second opinion does not share the coder's blind spots.
+    pr_review_model_provider: str = ""
+    pr_review_model: str = ""
+    pr_review_api_key: str = ""
+    pr_review_thinking_level: str = Field(
+        default="",
+        description="Pi reasoning effort for the PR review session. Empty uses PI_THINKING_LEVEL.",
+    )
+    pr_review_default: bool = Field(
+        default=True,
+        description=(
+            "Whether a run reviews the whole change before the final gate when nobody chose: "
+            "runs started from Jira, and the start screen's initial setting."
+        ),
+    )
+    pr_review_rules_path: str = Field(
+        default="",
+        description="Markdown rules for the PR review. Empty uses REVIEW_RULES_PATH.",
+    )
+    pr_review_max_fix_rounds: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "How many times the final gate may send review findings back to the coding agent. "
+            "After that the gate only offers a pull request or finishing."
+        ),
     )
     review_max_diff_chars: int = Field(
         default=200_000,
@@ -346,6 +375,16 @@ class Settings(BaseSettings):
             raise ValueError(f"PI_THINKING_LEVEL must be one of {sorted(allowed)}; got {value!r}")
         return value
 
+    @field_validator("pr_review_thinking_level")
+    @classmethod
+    def _check_pr_review_thinking_level(cls, value: str) -> str:
+        allowed = {"", "off", "minimal", "low", "medium", "high", "xhigh"}
+        if value not in allowed:
+            raise ValueError(
+                f"PR_REVIEW_THINKING_LEVEL must be empty or one of {sorted(allowed - {''})}; got {value!r}"
+            )
+        return value
+
     def pi_env_passthrough_names(self) -> list[str]:
         return [name.strip() for name in self.pi_env_passthrough.split(",") if name.strip()]
 
@@ -383,11 +422,24 @@ class Settings(BaseSettings):
                 model=self.requirements_model or self.review_model,
                 api_key=self.requirements_api_key or self.review_api_key,
             )
+        if stage == "pr_review":
+            return StageModelConfig(
+                provider=self.pr_review_model_provider or self.review_model_provider,
+                model=self.pr_review_model or self.review_model,
+                api_key=self.pr_review_api_key or self.review_api_key,
+            )
         return StageModelConfig(
             provider=self.review_model_provider,
             model=self.review_model,
             api_key=self.review_api_key,
         )
+
+    def pr_review_rules(self) -> str:
+        """The rules the PR review judges against: its own file, or the review rules."""
+        if self.pr_review_rules_path.strip():
+            path = Path(self.pr_review_rules_path)
+            return path.read_text(encoding="utf-8") if path.is_file() else ""
+        return self.review_rules()
 
     def prices(self) -> dict[str, dict[str, float]]:
         """``MODEL_PRICES`` parsed; a malformed value is an error at startup, not a silent zero."""
@@ -485,7 +537,7 @@ class Settings(BaseSettings):
         """Non-secret configuration for the settings screen."""
         stages = {
             s: self.stage_model(s).model_dump(exclude={"api_key"})
-            for s in ("requirements", "planning", "coding", "review")
+            for s in ("requirements", "planning", "coding", "review", "pr_review")
         }
         return {
             "app_name": self.app_name,
@@ -525,6 +577,12 @@ class Settings(BaseSettings):
             "cost": {
                 "run_budget_usd": self.run_budget_usd,
                 "priced_models": sorted(self.prices()),
+            },
+            "pr_review": {
+                "default": self.pr_review_default,
+                "thinking_level": self.pr_review_thinking_level or self.pi_thinking_level,
+                "max_fix_rounds": self.pr_review_max_fix_rounds,
+                "rules_path": self.pr_review_rules_path or self.review_rules_path,
             },
             "review": {
                 "max_iterations": self.review_max_iterations,

@@ -139,6 +139,8 @@ from pi_jira_agent.models import (  # noqa: E402
     PlanStep,
     PullRequestResult,
     RequirementsSpec,
+    ReviewFinding,
+    ReviewResult,
     ScopeCheck,
     ScopeFinding,
 )
@@ -216,6 +218,51 @@ class FakeRunner:
         self.execute_gate = None  # the same for execute calls, held after the files were edited
         # What each session reports having used, as the real runner does.
         self.usage = {"input": 12000, "output": 900, "cache_read": 4000, "cache_write": 0, "cost": 0.05}
+        # PR review (run_review): one entry per call, each a list of findings (dicts without a
+        # number). Calls beyond the script find nothing. `review_error` makes the call raise.
+        self.review_calls: list[dict] = []
+        self.review_script: list[list[dict]] = []
+        self.review_error: str | None = None
+        self.review_usage = {"input": 30000, "output": 600, "cache_read": 0, "cache_write": 0, "cost": 0.02}
+
+    async def review(
+        self,
+        executor,
+        key,
+        *,
+        issue,
+        repo_cwd,
+        repo_roots,
+        diff,
+        rules="",
+        requirements=None,
+        plan=None,
+        previous=None,
+        notes="",
+        max_cost_usd=None,
+    ):
+        self.review_calls.append(
+            {
+                "key": key,
+                "repos": sorted(diff),
+                "rules": rules,
+                "requirements": requirements.title if requirements else None,
+                "previous": [f["number"] for f in previous or []],
+                "notes": notes,
+            }
+        )
+        if self.review_error:
+            raise RuntimeError(self.review_error)
+        index = len(self.review_calls) - 1
+        findings = self.review_script[index] if index < len(self.review_script) else []
+        return ReviewResult(
+            summary=f"{len(findings)} finding(s) across {len(diff)} repo(s).",
+            findings=[ReviewFinding(number=i + 1, **f) for i, f in enumerate(findings)],
+            # A re-review confirms everything it was asked to check.
+            resolved=[f["number"] for f in previous or []],
+            files_changed=sorted(diff),
+            usage=dict(self.review_usage),
+        )
 
     async def __call__(
         self,
@@ -313,6 +360,11 @@ def install_fakes(monkeypatch) -> dict:
         return await runner(self, issue, **kwargs)
 
     monkeypatch.setattr(pi_agent.PiAgentExecutor, "run_with_mode", _run_with_mode)
+
+    async def _run_review(self, key, **kwargs):
+        return await runner.review(self, key, **kwargs)
+
+    monkeypatch.setattr(pi_agent.PiAgentExecutor, "run_review", _run_review)
 
     async def fake_get_issue(self, key):
         return JiraIssue(

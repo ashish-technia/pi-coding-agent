@@ -18,12 +18,15 @@ graph TD
   await_plan -.->|approve all / phased| coding_agent
   await_plan -.->|refine| planning_agent
   await_plan -.->|reject| cancelled_node
-  coding_agent --> review_agent
+  coding_agent -.->|normal pass| review_agent
+  coding_agent -.->|fix pass| pr_review
   review_agent -.->|approved| phase_gate
   review_agent -.->|rejected, iteration < max| coding_agent
   review_agent -.->|rejected, max reached| failed_node
   phase_gate -.->|continue (next phase)| coding_agent
-  phase_gate -.->|last phase / stop| await_final
+  phase_gate -.->|last phase / stop, PR review on| pr_review --> await_final
+  phase_gate -.->|last phase / stop, PR review off| await_final
+  await_final -.->|fix| coding_agent
   await_final -.->|create_pr| pr_node --> announce_node --> E([end])
   await_final -.->|finish| E
   cancelled_node --> E
@@ -37,13 +40,13 @@ graph TD
 | `await_requirements` (`requirements_approval`) | `approve` (+ edited `requirements`, `acknowledge_scope`), `revise` (+ `notes`), `cancel` | approve stores the edited spec and runs the scope check; revise re-frames with notes |
 | `await_plan` (`plan_approval`) | `approve` (+ `mode`: `all` \| `phased`), `refine` (+ `notes`), `reject` | phased mode implements one phase per coding pass |
 | `phase_gate` (`phase_gate`) | `continue`, `stop` | only pauses in phased mode when phases remain |
-| `await_final` (`final_review`) | `create_pr` (+ `pr_title`, `pr_description`), `finish` | `create_pr` is refused when `PR_CREATION_ENABLED=false` |
+| `await_final` (`final_review`) | `create_pr` (+ `pr_title`, `pr_description`), `finish`, `fix` (+ `findings`, `notes`) | `create_pr` is refused when `PR_CREATION_ENABLED=false`. `fix` sends [PR review](../agents/pr-review-agent.md) findings back to coding; it is refused without a PR review, when the review did not run, and after `PR_REVIEW_MAX_FIX_ROUNDS` |
 
 Every answered gate appends an entry to `decision_log` (gate, action, who, when). From Jira, only the accounts in `GATE_APPROVERS` may answer. Each pending payload also carries a `gate_id`, unique to that pause; the UI echoes it with its decision and the service refuses (`409`) one that names an earlier gate. The decision models live in `graph/decisions.py`. The service validates a raw decision against the pending type before resuming, so a `create_pr` sent while a plan is pending is rejected with HTTP 400.
 
 ## Status values
 
-`fetching`, `framing_requirements`, `pending_requirements`, `planning`, `pending_plan`, `coding`, `reviewing`, `pending_phase`, `pending_final`, `creating_pr`, `done`, `failed`, `cancelled`, plus `stuck_error` reported by the service when a node raised.
+`fetching`, `framing_requirements`, `pending_requirements`, `planning`, `pending_plan`, `coding`, `reviewing`, `pending_phase`, `pr_reviewing`, `pending_final`, `creating_pr`, `done`, `failed`, `cancelled`, plus `stuck_error` reported by the service when a node raised.
 
 While a gate is paused the effective status is derived from the pending interrupt type, because a node's state update is only stored when it returns.
 

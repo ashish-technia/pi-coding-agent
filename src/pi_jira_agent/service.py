@@ -13,7 +13,7 @@ from .channels.jira_comments import JiraCommentChannel, approver_account_ids
 from .config import settings
 from .graph import progress
 from .graph.build import build_graph, make_checkpointer, make_jira_client, make_serde, make_workspaces
-from .graph.decisions import parse_decision
+from .graph.decisions import parse_decision, resolve_fix
 from .graph.progress import NODE_LABELS, STAGE_OF_NODE
 from .graph.state import initial_state
 from .models import JiraIssue
@@ -219,17 +219,21 @@ class AutomationService:
         channel: str = "ui",
         inline_issue: JiraIssue | None = None,
         repos: list[str] | None = None,
+        pr_review: bool | None = None,
     ) -> dict:
         """Start (or resume) the workflow for a Jira issue key.
 
         ``repos`` names the repositories this run may work in; None means the repos
-        flagged ``default_selected`` in repos.json.
+        flagged ``default_selected`` in repos.json. ``pr_review`` switches the whole-change
+        review before the final gate on or off; None means ``PR_REVIEW_DEFAULT``.
         """
         issue_key = issue_key.strip().upper()
         config = self._config(issue_key)
 
         async with self._lock(issue_key):
-            await self._start_locked(issue_key, config, channel=channel, inline_issue=inline_issue, repos=repos)
+            await self._start_locked(
+                issue_key, config, channel=channel, inline_issue=inline_issue, repos=repos, pr_review=pr_review
+            )
         return await self.get_status(issue_key)
 
     async def _start_locked(
@@ -240,6 +244,7 @@ class AutomationService:
         channel: str,
         inline_issue: JiraIssue | None,
         repos: list[str] | None,
+        pr_review: bool | None = None,
     ) -> None:
         if issue_key in self._tasks:
             return
@@ -263,6 +268,7 @@ class AutomationService:
             repos=[r.name for r in selected],
             max_iterations=settings.review_max_iterations,
             issue=inline_issue,
+            pr_review=settings.pr_review_default if pr_review is None else pr_review,
         )
         progress.reset_activity(issue_key)
         await self.registry.upsert(
@@ -305,6 +311,8 @@ class AutomationService:
             ):
                 raise ValueError("Pull request creation is disabled (PR_CREATION_ENABLED=false).")
             resume = decision.model_dump(mode="json")
+            if resume.get("action") == "fix":
+                resume = resolve_fix(resume, pending.get("pr_review") or {})
             resume["decided_by"] = decided_by  # set here, so a caller cannot claim to be someone else
             logger.info("Decision for %s at %s: %s", issue_key, pending_type, resume.get("action"))
             self._run_background(
@@ -365,8 +373,12 @@ class AutomationService:
             )
         return False
 
-    async def retry(self, issue_key: str) -> dict:
-        """Resume a run stuck on a node that previously raised an exception."""
+    async def retry(self, issue_key: str, *, skip_pr_review: bool = False) -> dict:
+        """Resume a run stuck on a node that previously raised an exception.
+
+        ``skip_pr_review`` continues a run stuck on the PR review without it, so a model
+        outage cannot hold a finished change hostage. The final gate then says so.
+        """
         config = self._config(issue_key)
         async with self._lock(issue_key):
             if issue_key in self._tasks:
@@ -382,6 +394,10 @@ class AutomationService:
             if error and "review_agent" in stuck_nodes:
                 existing_feedback = state.values.get("review_feedback", "")
                 updates["review_feedback"] = f"{existing_feedback}\n[Previous attempt errored: {error[:300]}]".strip()
+            if skip_pr_review:
+                if "pr_review" not in stuck_nodes:
+                    raise ValueError(f"{issue_key} is not stuck on the PR review, so there is nothing to skip.")
+                updates["pr_review_skip"] = True
             await self._compiled.aupdate_state(config, updates)
             self._run_background(issue_key, self._compiled.ainvoke(None, config=config))
         return await self.get_status(issue_key)
@@ -439,7 +455,9 @@ class AutomationService:
             "node": node,
             "node_label": node_label,
             "node_elapsed_s": round(time.time() - node_since) if node_since else None,
-            "pi_timeout_s": settings.pi_timeout_seconds if node in {"planning_agent", "coding_agent"} else None,
+            "pi_timeout_s": (
+                settings.pi_timeout_seconds if node in {"planning_agent", "coding_agent", "pr_review"} else None
+            ),
             "activity": progress.events(issue_key, limit=150),
             "stage": STAGE_OF_NODE.get(node) if node else None,
             "status": values.get("status"),
@@ -464,6 +482,10 @@ class AutomationService:
             "phase_diffs": values.get("phase_diffs") or [],
             "review_approved": values.get("review_approved"),
             "review_feedback": values.get("review_feedback"),
+            "pr_review_enabled": bool(values.get("pr_review_enabled")),
+            "pr_review": _dump(values.get("pr_review")),
+            "pr_review_skipped": bool(values.get("pr_review_skipped")),
+            "fix_rounds": values.get("fix_rounds") or 0,
             "pr_title": values.get("pr_title"),
             "pr_urls": values.get("pr_urls") or {},
         }

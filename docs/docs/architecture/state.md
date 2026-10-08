@@ -64,8 +64,18 @@ in `graph/build.py`, and each node looks up what it needs by name through
 `graph/repo_context.py`. A name that has disappeared from the config is skipped rather than
 killing an in-flight run.
 
-`decision_log` (bookkeeping) gets one entry per answered gate: `gate`, `action`, `by` and `at`. `by` is set
+`decision_log` (bookkeeping) gets one entry per answered gate: `gate`, `action`, `by` and `at`. An entry
+of the final gate on a run with a PR review also has `review`: the findings `shown` (number, severity,
+category), the numbers sent back (`fix`) and the numbers `left`. `by` is set
 by the service, `ui` or `jira:<accountId>`, never taken from the request.
+
+The PR review has six fields. `pr_review_enabled` is chosen when the run starts and never changes.
+`pr_review` holds the latest `ReviewResult` (`None` before it ran, or when it was skipped).
+`pr_review_skipped` records that the review failed and the run was continued without it;
+`pr_review_skip` is the request to do so, set by a retry and consumed by the node. `fix_request`
+(`findings`, `notes`, `feedback`) is set by the final gate's `fix` action and cleared by the next
+review; while it is set, `coding_agent` runs a fix pass and routes to `pr_review`. `fix_rounds`
+counts those passes.
 
 `usage` (bookkeeping) is the run's cost ledger: one entry per model call that returned, with `stage`,
 `provider`, `model`, `input`, `output`, `cache_read`, `cache_write`, `cost_usd` and `at`. There is no

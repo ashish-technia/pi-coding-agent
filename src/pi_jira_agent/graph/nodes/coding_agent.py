@@ -98,7 +98,11 @@ def make_coding_agent(
                 logger.info("Creating branch %s in repo %s for issue %s", plan_result.branch_name, name, issue.key)
                 await asyncio.to_thread(git_branch.create_branch, plan_result.branch_name)
 
-        work_order = phase_plan(plan_result, mode, phase_index)
+        # A fix pass (R-57) works on the whole change: its work order is the full plan and its
+        # feedback is the findings the human chose at the final gate.
+        fix_request = state.get("fix_request") or {}
+        fixing = bool(fix_request)
+        work_order = plan_result if fixing else phase_plan(plan_result, mode, phase_index)
         logger.info(
             "Coding issue %s: repos=%s mode=%s phase=%d/%d iteration=%d steps=%d",
             issue.key,
@@ -118,7 +122,7 @@ def make_coding_agent(
                 branch_name=plan_result.branch_name,
                 plan=work_order,
                 requirements=state.get("requirements"),
-                review_feedback=review_feedback if iteration > 0 else "",
+                review_feedback=fix_request.get("feedback", "") if fixing else review_feedback if iteration > 0 else "",
                 max_cost_usd=usage.remaining(state, budget_usd),
             )
         logger.info("Coding agent completed for issue %s", issue.key)
@@ -153,7 +157,7 @@ def make_coding_agent(
             "diffs": diffs,
             "phase_diff": phase_diff,
             "tree_shas": tree_shas,
-            "status": "reviewing",
+            "status": "pr_reviewing" if fixing else "reviewing",
             "iteration": iteration + 1,
             "current_node": "coding_agent",
         }

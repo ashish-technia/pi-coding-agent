@@ -730,7 +730,8 @@ async def test_run_records_tokens_and_cost_per_stage(service, fakes):
     assert status["status"] == "pending_final"
     coding = next(s for s in status["usage"]["by_stage"] if s["stage"] == "coding")
     assert coding["calls"] == 2, "one coding pass per review round"
-    assert status["usage"]["cost_usd"] == pytest.approx(0.15)
+    # Planning, two coding passes and the PR review; the fake chat model reports nothing.
+    assert status["usage"]["cost_usd"] == pytest.approx(0.17)
     assert fakes["runner"].calls[0]["max_cost_usd"] is None
 
 
@@ -768,7 +769,7 @@ async def test_run_stops_at_its_budget_and_continues_after_it_is_raised(fakes, m
         await svc.retry(key)
         status = await wait_paused(svc, key)
         assert status["status"] == "pending_final"
-        assert status["usage"]["cost_usd"] == pytest.approx(0.15)
+        assert status["usage"]["cost_usd"] == pytest.approx(0.17)
     finally:
         await svc.stop()
 

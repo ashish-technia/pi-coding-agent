@@ -133,8 +133,38 @@ export type Pending = { gate_id: string } & (
       suggested_pr_description: string
       phases_completed: number
       phases_total: number
+      pr_review?: PrReview
     }
 )
+
+export interface ReviewFinding {
+  /** 1 is the most serious; this is the number `/fix 1 3` refers to. */
+  number: number
+  severity: 'must' | 'should' | 'note'
+  category: string
+  claim: string
+  suggestion: string
+  /** Empty only for an acceptance criterion nothing implements. */
+  file: string
+  line: number | null
+  repo: string
+}
+
+/** The whole-change review as the final gate shows it. */
+export interface PrReview {
+  enabled: boolean
+  /** The review failed and the run was continued without it. */
+  skipped: boolean
+  summary: string
+  findings: ReviewFinding[]
+  /** On a re-review: numbers of the earlier findings that are now fixed. */
+  resolved: number[]
+  not_reviewed: string[]
+  dropped_findings: number
+  fix_rounds: number
+  max_fix_rounds: number
+  fix_available: boolean
+}
 
 export interface ActivityEvent {
   seq: number
@@ -218,6 +248,9 @@ export interface RunStatus {
   diffs: Record<string, string>
   review_approved: boolean | null
   review_feedback: string | null
+  pr_review_enabled?: boolean
+  pr_review_skipped?: boolean
+  fix_rounds?: number
   pr_title: string | null
   pr_urls: Record<string, string>
   error?: string
@@ -236,7 +269,8 @@ export interface RunSummary {
 
 export interface AppConfig {
   app_name: string
-  stages: Record<'requirements' | 'planning' | 'coding' | 'review', { provider: string; model: string }>
+  stages: Record<'requirements' | 'planning' | 'coding' | 'review' | 'pr_review', { provider: string; model: string }>
+  pr_review?: { default: boolean; thinking_level: string; max_fix_rounds: number; rules_path: string }
   pi: {
     thinking_level: string
     timeout_seconds: number
@@ -271,6 +305,7 @@ export type Decision =
   | { action: 'stop' }
   | { action: 'create_pr'; pr_title: string; pr_description?: string }
   | { action: 'finish' }
+  | { action: 'fix'; findings: number[]; notes: string }
 
 export class ApiError extends Error {
   status: number
@@ -313,10 +348,16 @@ export const api = {
     issue_key: string,
     inline?: { summary: string; description: string; project_key?: string },
     repos?: string[],
+    prReview?: boolean,
   ) =>
     request<RunStatus>('/api/runs', {
       method: 'POST',
-      body: JSON.stringify({ issue_key, ...(inline ?? {}), ...(repos?.length ? { repos } : {}) }),
+      body: JSON.stringify({
+        issue_key,
+        ...(inline ?? {}),
+        ...(repos?.length ? { repos } : {}),
+        ...(prReview === undefined ? {} : { pr_review: prReview }),
+      }),
     }),
   getRun: (key: string) => request<RunStatus>(`/api/runs/${encodeURIComponent(key)}`),
   decide: (key: string, gateId: string, decision: Decision) =>
@@ -324,5 +365,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ...decision, gate_id: gateId }),
     }),
-  retry: (key: string) => request<RunStatus>(`/api/runs/${encodeURIComponent(key)}/retry`, { method: 'POST' }),
+  retry: (key: string, skipPrReview = false) =>
+    request<RunStatus>(`/api/runs/${encodeURIComponent(key)}/retry`, {
+      method: 'POST',
+      body: JSON.stringify({ skip_pr_review: skipPrReview }),
+    }),
 }
