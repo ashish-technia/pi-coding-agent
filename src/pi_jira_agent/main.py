@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth
+from . import auth, manifest
 from .config import settings
 from .graph.build import make_jira_client, make_pi_executor
 from .models import JiraIssue, JiraWebhookPayload
@@ -280,6 +280,7 @@ async def start_review(req: StartReviewRequest, request: Request) -> dict:
         branch=req.branch,
         issue_key=issue_key,
         started_by="ui" if settings.auth_mode == "none" else user.label,
+        manifest=manifest.build(settings, pr_review=True),
     )
 
 

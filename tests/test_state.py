@@ -34,3 +34,41 @@ def test_unpriced_calls_are_counted_not_dropped():
     assert summary["unpriced_calls"] == 1
     assert summary["input"] == 600
     assert summary["budget_usd"] is None
+
+
+def test_manifest_records_what_produced_a_run():
+    from pi_jira_agent import manifest, prompts
+    from pi_jira_agent.config import settings
+
+    taken = manifest.build(settings, pr_review=False)
+    assert set(taken["stages"]) == {"requirements", "planning", "coding", "review", "pr_review"}
+    assert taken["stages"]["pr_review"]["enabled"] is False
+    assert taken["stages"]["coding"]["model"] == settings.stage_model("coding").model
+    assert taken["pi_sdk_version"] == "1.1.0", "the pinned SDK"
+    assert len(taken["runner_sha"]) == 12 and taken["runner_sha"] != "unknown"
+    assert taken["agent_git_sha"] != "unknown"
+    assert taken["prompts"]["phase_review"] == {"version": 1, "sha": prompts.get("phase_review").sha}
+    assert set(taken["prompts"]) == {"phase_review", "requirements_framing", "scope_check", "pi_system"}
+    # No key, token or path: the manifest is shown in the UI and stored with every run.
+    assert "api_key" not in str(taken)
+
+
+def test_a_prompt_edit_changes_its_hash(tmp_path, monkeypatch):
+    from pi_jira_agent import prompts
+
+    (tmp_path / "demo.md").write_text("<!-- version: 3 -->\nBe careful.\n", encoding="utf-8")
+    monkeypatch.setattr(prompts, "_DIR", tmp_path)
+    prompts.get.cache_clear()
+    try:
+        first = prompts.get("demo")
+        assert (first.version, first.text) == (3, "Be careful.")
+        (tmp_path / "demo.md").write_text("<!-- version: 3 -->\nBe very careful.\n", encoding="utf-8")
+        prompts.get.cache_clear()
+        assert prompts.get("demo").sha != first.sha, "an edit shows even when the version was not bumped"
+        (tmp_path / "bad.md").write_text("No header.\n", encoding="utf-8")
+        import pytest
+
+        with pytest.raises(ValueError, match="must start with"):
+            prompts.get("bad")
+    finally:
+        prompts.get.cache_clear()

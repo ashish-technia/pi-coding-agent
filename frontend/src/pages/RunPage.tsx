@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError, type Decision, type RunStatus } from '../api'
+import ManifestDetails from '../components/ManifestDetails'
 import UsageSummary from '../components/UsageSummary'
 import ActivityPanel from '../components/ActivityPanel'
 import DiffViewer from '../components/DiffViewer'
@@ -114,6 +115,7 @@ export default function RunPage() {
 
       <ActivityPanel run={run} />
       <UsageSummary usage={run.usage} />
+      <ManifestDetails manifest={run.manifest} />
 
       {error && <div className="error-box" style={{ marginBottom: 12 }}>{error}</div>}
 

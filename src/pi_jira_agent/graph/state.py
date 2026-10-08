@@ -78,6 +78,7 @@ class GraphState(TypedDict, total=False):
     auto_resumes: int  # times the service resumed this run by itself after a restart
     decision_log: list[dict]  # one entry per answered gate: gate, action, by, at
     usage: list[dict]  # one entry per model call that returned: stage, model, tokens, cost_usd
+    manifest: dict  # what produced this run: versions, models, prompt hashes; taken at the start
     error: str | None
 
 
@@ -89,6 +90,7 @@ def initial_state(
     max_iterations: int,
     issue: JiraIssue | None = None,
     pr_review: bool = False,
+    manifest: dict | None = None,
 ) -> GraphState:
     """The input a new run starts from: a value for **every** field.
 
@@ -140,6 +142,7 @@ def initial_state(
             "auto_resumes": 0,
             "decision_log": [],
             "usage": [],
+            "manifest": manifest or {},
             "error": None,
         },
     )

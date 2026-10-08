@@ -15,6 +15,7 @@ the same commit. The docs here are unusually load-bearing - `docs/docs/architect
 | `GraphState` fields or `Status` values | `docs/docs/architecture/state.md` and the status list in `architecture/graph.md` (both enumerate them) |
 | A gate or its allowed decisions | `architecture/graph.md` ("Gates and their decisions"), `operations/webhook.md` ("The reply schema"), and the checklist under *Gates, interrupts and decisions* below |
 | A FastAPI route | `docs/docs/api/endpoints.md` and the API table in `README.md` |
+| A prompt in `src/pi_jira_agent/prompts/` | its `<!-- version: N -->` line, and `docs/docs/agents/*.md` if the behaviour it describes changed |
 | A setting in `config.py` | `.env.example`, `docs/docs/getting-started/configuration.md`, the Configuration section of `README.md`, and `public_view()` if it is non-secret |
 | The repo list, its selection or per-repo behaviour | `docs/docs/getting-started/repositories.md`, `repos.example.json`, and the multi-repo notes in `agents/*.md` |
 | The Pi runner payload, protocol or tool allowlist | `docs/docs/agents/planning-agent.md`, `agents/coding-agent.md`, and the Pi runner protocol section of `architecture/technical-design.md` |
@@ -38,7 +39,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (107 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (110 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -190,6 +191,13 @@ Two status subtleties in `service.py`: a paused node has not returned yet, so th
 stale and the effective one is derived from the pending interrupt via `_STATUS_FOR_PENDING`; and a node that
 raised leaves `state.next` set with a task error, which is surfaced as the synthetic status `stuck_error`
 (recoverable with `POST /api/runs/{key}/retry`).
+
+`manifest.py` records what produced a run (R-39): `AutomationService._start_locked` stores
+`manifest.build(...)` in the initial state and nothing updates it. System prompts of the direct LangChain
+stages are files in `src/pi_jira_agent/prompts/` with a `<!-- version: N -->` first line (R-40), loaded
+through `prompts.get(name)`; a new prompt file appears in the manifest by itself. The runner's prompts
+stay in code and are versioned by `runner_sha`, so changing `node/pi-sdk-runner.mjs` changes every
+later run's manifest.
 
 `usage.py` is the cost ledger (R-14). Every node that calls a model checks `usage.check_budget` first and
 returns `"usage": usage.appended(state, entry)`; a new model-calling node must do both. Pi sessions report
