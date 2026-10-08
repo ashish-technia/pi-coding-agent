@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from .graph import progress
-from .models import AgentResult, JiraIssue, RequirementsSpec
+from .models import AgentResult, JiraIssue, RequirementsSpec, ReviewResult
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +179,6 @@ class PiAgentExecutor:
 
     async def run(self, issue: JiraIssue) -> AgentResult:
         project_root = Path(__file__).resolve().parents[2]
-        script_path = project_root / self.runner_script
         agent_dir_path = Path(self.agent_dir)
         if not agent_dir_path.is_absolute():
             agent_dir_path = project_root / agent_dir_path
@@ -214,18 +213,69 @@ class PiAgentExecutor:
             "maxCostUsd": ctx.get("max_cost_usd"),
         }
 
+        raw = await self._spawn(issue.key, payload, repo_cwd)
+        return AgentResult.model_validate_json(raw)
+
+    async def run_review(
+        self,
+        key: str,
+        *,
+        issue: JiraIssue | None,
+        repo_cwd: str,
+        repo_roots: list[dict],
+        diff: dict[str, dict[str, str]],
+        rules: str = "",
+        requirements: RequirementsSpec | None = None,
+        plan: AgentResult | None = None,
+        previous: list[dict] | None = None,
+        notes: str = "",
+        max_cost_usd: float | None = None,
+    ) -> ReviewResult:
+        """Review a finished change in a read-only session (R-51).
+
+        ``diff`` maps each repository name to ``{"base": ..., "tree": ...}``, the two commits or
+        trees to compare. ``key`` names the run or review the live events belong to; ``issue``
+        may be None when a branch is reviewed without one. ``previous`` are the findings a
+        rework was meant to fix, which makes this a re-review.
+        """
+        project_root = Path(__file__).resolve().parents[2]
+        agent_dir_path = Path(self.agent_dir)
+        if not agent_dir_path.is_absolute():
+            agent_dir_path = project_root / agent_dir_path
+        payload = {
+            "mode": "review",
+            "issue": issue.model_dump() if issue else None,
+            "model": self.model,
+            "systemPrompt": self.system_prompt,
+            "provider": self.provider,
+            "agentDir": str(agent_dir_path),
+            "repoCwd": repo_cwd,
+            "repoRoots": repo_roots,
+            "thinkingLevel": self.thinking_level,
+            "requirements": requirements.model_dump() if requirements else None,
+            # Context only: the reviewer judges against the requirement, not the plan.
+            "plan": plan.model_dump() if plan else None,
+            "review": {"diff": diff, "rules": rules, "previous": previous or [], "notes": notes},
+            "maxCostUsd": max_cost_usd,
+        }
+        raw = await self._spawn(key, payload, repo_cwd)
+        return ReviewResult.model_validate_json(raw)
+
+    async def _spawn(self, key: str, payload: dict, repo_cwd: str) -> str:
+        """Run the runner once for ``payload`` and return what it printed on stdout."""
+        script_path = Path(__file__).resolve().parents[2] / self.runner_script
         env = pi_environment(self.api_key, self.env_passthrough)
         # Set when this coroutine is cancelled (shutdown): the worker thread cannot be
         # cancelled, so it is told to kill the process tree and return.
         stop = threading.Event()
 
         def on_event(event: dict) -> None:
-            progress.add_event(issue.key, {"source": "pi", **event})
+            progress.add_event(key, {"source": "pi", **event})
             ev = event.get("ev")
             if ev == "tool":
-                logger.info("[pi %s] %s %s", issue.key, event.get("tool"), event.get("args", ""))
+                logger.info("[pi %s] %s %s", key, event.get("tool"), event.get("args", ""))
             elif ev in {"start", "done", "validation", "blocked", "usage"}:
-                logger.info("[pi %s] %s %s", issue.key, ev, {k: v for k, v in event.items() if k not in {"ev", "t"}})
+                logger.info("[pi %s] %s %s", key, ev, {k: v for k, v in event.items() if k not in {"ev", "t"}})
 
         try:
             returncode, stdout, stderr = await asyncio.to_thread(
@@ -247,9 +297,7 @@ class PiAgentExecutor:
                 "Ensure Node.js is installed and PI_NODE_COMMAND is correct."
             ) from exc
         except subprocess.TimeoutExpired as exc:
-            progress.add_event(
-                issue.key, {"source": "pi", "ev": "error", "text": f"timed out after {self.timeout_seconds}s"}
-            )
+            progress.add_event(key, {"source": "pi", "ev": "error", "text": f"timed out after {self.timeout_seconds}s"})
             raise RuntimeError(
                 f"Pi SDK runner timed out after {self.timeout_seconds}s "
                 f"(provider={self.provider}, model={self.model}). Raise PI_TIMEOUT_SECONDS or lower PI_THINKING_LEVEL."
@@ -257,7 +305,7 @@ class PiAgentExecutor:
 
         if returncode != 0:
             details = stderr.strip() or stdout.strip() or "<no stdout/stderr output>"
-            progress.add_event(issue.key, {"source": "pi", "ev": "error", "text": details[-400:]})
+            progress.add_event(key, {"source": "pi", "ev": "error", "text": details[-400:]})
             raise RuntimeError(
                 f"Pi SDK runner failed with exit code {returncode} "
                 f"(provider={self.provider}, model={self.model}, script={script_path}): "
@@ -267,8 +315,7 @@ class PiAgentExecutor:
         raw = stdout.strip()
         if not raw:
             raise RuntimeError("Pi SDK runner returned empty output.")
-
-        return AgentResult.model_validate_json(raw)
+        return raw
 
     async def run_with_mode(
         self,

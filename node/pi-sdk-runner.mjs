@@ -9,6 +9,13 @@ import {
   SessionManager,
   createAgentSession,
 } from "@earendil-works/pi-coding-agent";
+import {
+  REVIEW_TOOL_NAMES,
+  buildReviewPrompt,
+  listChangedFiles,
+  makeReviewTools,
+  normaliseReview,
+} from "./review-mode.mjs";
 
 /**
  * Pi's registry uses dated API ids per provider. Common short names (e.g. claude-sonnet-4) may
@@ -275,6 +282,8 @@ function repoRootsBlock(roots, multi) {
 }
 
 function issueBlock(issue) {
+  // A standalone review may have no issue at all.
+  if (!issue) return [];
   const lines = [
     `Jira key: ${issue.key}`,
     `Project: ${issue.project_key}`,
@@ -322,6 +331,12 @@ function reviewFeedbackBlock(feedback) {
 
 /** "repo/path" when the plan spans repositories, plain path otherwise. */
 const stepLabel = (s) => (s.repo ? `${s.repo}/${s.file}` : s.file);
+
+/** The plan's steps as short lines, for a prompt that only needs them as context. */
+function planStepLines(plan) {
+  const steps = Array.isArray(plan?.plan_steps) ? plan.plan_steps : [];
+  return steps.map((s, i) => `  ${i + 1}. [${s.action ?? "modify"}] ${stepLabel(s)}: ${s.change}`);
+}
 
 function planBlock(plan) {
   if (!plan) return [];
@@ -702,7 +717,10 @@ export async function runAgent(parsed, deps = {}) {
   const provider = parsed.provider ?? "openai";
   const agentDirInput = parsed.agentDir ?? ".pi-agent";
   const repoCwdInput = parsed.repoCwd ?? process.cwd();
-  const executeChanges = parsed.executeChanges ?? false;
+  // Review mode (R-51) is read-only like plan mode, with its own tools, prompt and result.
+  const isReview = parsed.mode === "review";
+  const review = isReview && parsed.review && typeof parsed.review === "object" ? parsed.review : {};
+  const executeChanges = !isReview && (parsed.executeChanges ?? false);
   const branchName = parsed.branchName ?? "";
   const plan = parsed.plan ?? null;
   const requirements = parsed.requirements ?? null;
@@ -717,6 +735,8 @@ export async function runAgent(parsed, deps = {}) {
   // this run attached. One root behaves exactly as before, prefixes and all.
   const roots = normaliseRoots(parsed.repoRoots, cwd);
   const multi = roots.length > 1;
+  const isRefine = !executeChanges && !isReview && Boolean(reviewerNotes);
+  const mode = isReview ? "review" : executeChanges ? "execute" : isRefine ? "refine" : "plan";
 
   // Pi 1.x: one ModelRuntime owns credentials and the model catalogue. The catalogue is the
   // one bundled with the pinned SDK and is not refreshed over the network here, so the same
@@ -789,7 +809,21 @@ export async function runAgent(parsed, deps = {}) {
     // The SDK clamps this to "off" for models without reasoning support.
     thinkingLevel,
   };
-  if (!executeChanges) {
+  // What the change under review touches, and which of those files the session opened.
+  const changed = isReview ? listChangedFiles(roots, multi, review.diff) : [];
+  const openedDiffs = new Set();
+  const resolveForReview = (repo, file) => resolveRepoPath(roots, multi, repo, file);
+  const labelOf = (resolved) => canonicalKey(multi, resolved.root, resolved.rel);
+  if (isReview) {
+    sessionOptions.tools = [...PLAN_MODE_TOOLS, ...REVIEW_TOOL_NAMES];
+    sessionOptions.customTools = makeReviewTools({
+      changed,
+      multi,
+      resolve: resolveForReview,
+      labelOf,
+      opened: openedDiffs,
+    });
+  } else if (!executeChanges) {
     // Plan mode: read-only allowlist. Omitting `tools` would enable bash/edit/write.
     sessionOptions.tools = PLAN_MODE_TOOLS;
   }
@@ -820,15 +854,17 @@ export async function runAgent(parsed, deps = {}) {
     if (toolName === "ls") return args.path ? show(args.path) : ".";
     if (toolName === "bash") return String(args.command ?? "").slice(0, 200);
     if (toolName === "edit" || toolName === "write") return show(args.path);
+    if (toolName === "file_diff") return args.repo ? `${args.repo}/${args.path}` : String(args.path ?? "");
+    if (toolName === "changed_files") return "";
     return JSON.stringify(args).slice(0, 200);
   };
 
   emit({
     ev: "start",
-    mode: executeChanges ? "execute" : reviewerNotes ? "refine" : "plan",
+    mode,
     model: `${resolvedModel.provider}/${resolvedModel.id}`,
     thinking: thinkingLevel,
-    tools: executeChanges ? "read, bash, edit, write" : PLAN_MODE_TOOLS.join(", "),
+    tools: executeChanges ? "read, bash, edit, write" : sessionOptions.tools.join(", "),
     repos: roots.map((r) => r.name).filter(Boolean).join(", "),
   });
 
@@ -897,7 +933,8 @@ export async function runAgent(parsed, deps = {}) {
     );
   };
 
-  const collectResult = () => {
+  /** The JSON object in the model's last message. */
+  const lastAnswer = () => {
     // Do not rely on session.subscribe for text: AgentSession forwards events asynchronously,
     // so prompt() can return before user handlers run. Agent state is updated synchronously.
     const streamedText = lastAssistantTextFromAgentState(session);
@@ -911,12 +948,66 @@ export async function runAgent(parsed, deps = {}) {
           `lastAssistant=${summarizeAssistantMessage(lastAssistant)}`
       );
     }
-    rejected = [];
-    return normaliseResult(JSON.parse(extractFirstJsonObject(streamedText)), roots, multi, rejected);
+    return JSON.parse(extractFirstJsonObject(streamedText));
   };
 
-  const isRefine = !executeChanges && Boolean(reviewerNotes);
-  const mode = executeChanges ? "execute" : isRefine ? "refine" : "plan";
+  const collectResult = () => {
+    rejected = [];
+    return normaliseResult(lastAnswer(), roots, multi, rejected);
+  };
+
+  const toolSummaryNow = () =>
+    Object.entries(toolCalls)
+      .map(([name, count]) => `${name}x${count}`)
+      .join(" ") || "none";
+
+  if (isReview) {
+    await promptWithinBudget(
+      buildReviewPrompt({
+        systemPrompt,
+        modelId,
+        multi,
+        hasRequirement: Boolean(requirements || issue),
+        review,
+        blocks: {
+          repoRoots: repoRootsBlock(roots, multi),
+          issue: issueBlock(issue),
+          requirements: requirementsBlock(requirements),
+          plan: plan ? planStepLines(plan) : [],
+        },
+      })
+    );
+    const reviewed = normaliseReview(lastAnswer(), {
+      multi,
+      resolve: resolveForReview,
+      labelOf,
+      // A file counts as seen whether its diff or the file itself was opened.
+      seen: new Set([...readPaths, ...openedDiffs]),
+      changed,
+      opened: openedDiffs,
+      previous: review.previous,
+    });
+    process.stderr.write(
+      `[pi-runner] mode=review thinking=${thinkingLevel} tools=[${toolSummaryNow()}] ` +
+        `changed=${changed.length} findings=${reviewed.findings.length} dropped=${reviewed.dropped_findings.length} ` +
+        `notReviewed=${reviewed.not_reviewed.length} blocked=${blockedCalls.length}\n`
+    );
+    emit({
+      ev: "done",
+      mode,
+      tools: toolSummaryNow(),
+      files_read: readPaths.size,
+      findings: reviewed.findings.length,
+      dropped: reviewed.dropped_findings.length,
+      not_reviewed: reviewed.not_reviewed.length,
+      blocked: blockedCalls.length,
+    });
+    reviewed.usage = usageNow();
+    emit({ ev: "usage", ...reviewed.usage });
+    session.dispose();
+    return reviewed;
+  }
+
   let firstPrompt;
   if (executeChanges) {
     firstPrompt = buildExecutePrompt(issue, systemPrompt, modelId, branchName, plan, requirements, reviewFeedback, roots, multi);

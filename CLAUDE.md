@@ -204,8 +204,10 @@ byte-identical to the single-repo behaviour (no `repo` field, no path prefixes),
 existing setups unaffected. `resolveRepoPath` accepts an absolute path, a `repo` field plus a
 relative path, or a `repo/path` string, and rejects anything resolving outside the roots.
 
-The same script serves three modes, selected by the payload: plan, refine (plan + `reviewerNotes`) and execute
-(`executeChanges: true`). Plan mode sets `sessionOptions.tools = ["read","grep","find","ls"]` — omitting `tools`
+The same script serves four modes, selected by the payload: plan, refine (plan + `reviewerNotes`), execute
+(`executeChanges: true`) and review (`mode: "review"`, code in `node/review-mode.mjs`, result `ReviewResult`
+through `PiAgentExecutor.run_review`). Review mode is read-only, sees the change through its own
+`changed_files` and `file_diff` tools, and drops findings that cite a file the session never opened. Plan mode sets `sessionOptions.tools = ["read","grep","find","ls"]` — omitting `tools`
 would silently enable bash/edit/write, so that assignment is what makes plan mode read-only. After a plan is
 produced, `validatePlan` rejects steps whose file does not exist or that the agent never opened with `read`,
 and feeds the problems back for up to `PLAN_MAX_CORRECTIONS` rounds.
