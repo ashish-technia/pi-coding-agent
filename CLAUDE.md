@@ -16,6 +16,7 @@ the same commit. The docs here are unusually load-bearing - `docs/docs/architect
 | A gate or its allowed decisions | `architecture/graph.md` ("Gates and their decisions"), `operations/webhook.md` ("The reply schema"), and the checklist under *Gates, interrupts and decisions* below |
 | A FastAPI route | `docs/docs/api/endpoints.md` and the API table in `README.md` |
 | A prompt in `src/pi_jira_agent/prompts/` | its `<!-- version: N -->` line, and `docs/docs/agents/*.md` if the behaviour it describes changed |
+| How Jira text reaches a prompt, or what the pre-tool check refuses | `docs/docs/operations/prompt-injection.md` and `tests/redteam/injections.json` |
 | A setting in `config.py` | `.env.example`, `docs/docs/getting-started/configuration.md`, the Configuration section of `README.md`, and `public_view()` if it is non-secret |
 | The repo list, its selection or per-repo behaviour | `docs/docs/getting-started/repositories.md`, `repos.example.json`, and the multi-repo notes in `agents/*.md` |
 | The Pi runner payload, protocol or tool allowlist | `docs/docs/agents/planning-agent.md`, `agents/coding-agent.md`, and the Pi runner protocol section of `architecture/technical-design.md` |
@@ -39,7 +40,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (110 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (138 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -191,6 +192,13 @@ Two status subtleties in `service.py`: a paused node has not returned yet, so th
 stale and the effective one is derived from the pending interrupt via `_STATUS_FOR_PENDING`; and a node that
 raised leaves `state.next` set with a task error, which is surfaced as the synthetic status `stuck_error`
 (recoverable with `POST /api/runs/{key}/retry`).
+
+Jira text is untrusted (R-15). It enters a prompt only through `JiraIssue.as_context()`, `untrusted.wrap`
+or the runner's `issueBlock`, which put it between `JIRA_ISSUE_TEXT` markers under a notice; the markers
+are defined in both `untrusted.py` and `node/pi-sdk-runner.mjs` and must match. A new prompt that quotes
+issue text must use them. `tests/redteam/injections.json` is the shared set of hostile tickets: the
+Python test checks the marking, the runner test plays a model that obeys each one and expects the
+pre-tool check to refuse the call. Cases marked `allowed` are known gaps of the uncontained shell.
 
 `manifest.py` records what produced a run (R-39): `AutomationService._start_locked` stores
 `manifest.build(...)` in the initial state and nothing updates it. System prompts of the direct LangChain
