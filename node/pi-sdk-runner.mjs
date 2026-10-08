@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import process from "node:process";
 import path from "node:path";
-import { AuthStorage, ModelRegistry, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent";
+import { ModelRuntime, SessionManager, createAgentSession } from "@earendil-works/pi-coding-agent";
 
 /**
  * Pi's registry uses dated API ids per provider. Common short names (e.g. claude-sonnet-4) may
@@ -105,13 +105,13 @@ const PLAN_MAX_CORRECTIONS = 2;
 
 const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
-function resolveSessionModel(modelRegistry, provider, modelId) {
-  const direct = modelRegistry.find(provider, modelId);
+function resolveSessionModel(modelRuntime, provider, modelId) {
+  const direct = modelRuntime.getModel(provider, modelId);
   if (direct) return direct;
   const chain = PROVIDER_MODEL_ALIASES[provider]?.[modelId];
   if (chain) {
     for (const id of chain) {
-      const m = modelRegistry.find(provider, id);
+      const m = modelRuntime.getModel(provider, id);
       if (m) return m;
     }
   }
@@ -473,7 +473,7 @@ function summarizeAssistantMessage(msg) {
 
 /** Reliable: agent state is updated before async session listeners run. */
 function lastAssistantTextFromAgentState(session) {
-  const messages = session?.agent?.state?.messages;
+  const messages = session?.messages;
   if (!Array.isArray(messages)) return "";
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -627,11 +627,13 @@ async function main() {
     throw new Error("PI_PROVIDER_API_KEY env var is required.");
   }
 
-  const authStorage = AuthStorage.create();
-  authStorage.setRuntimeApiKey(provider, providerApiKey);
-  const modelRegistry = ModelRegistry.create(authStorage);
+  // Pi 1.x: one ModelRuntime owns credentials and the model catalogue. The catalogue is the
+  // one bundled with the pinned SDK and is not refreshed over the network here, so the same
+  // SDK version always resolves the same models.
+  const modelRuntime = await ModelRuntime.create();
+  await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
 
-  const resolvedModel = resolveSessionModel(modelRegistry, provider, modelId);
+  const resolvedModel = resolveSessionModel(modelRuntime, provider, modelId);
   if (!resolvedModel) {
     throw new Error(
       `Unknown model for provider "${provider}" id "${modelId}". ` +
@@ -642,9 +644,8 @@ async function main() {
   const sessionOptions = {
     cwd,
     agentDir,
-    sessionManager: SessionManager.inMemory(),
-    authStorage,
-    modelRegistry,
+    sessionManager: SessionManager.inMemory(cwd),
+    modelRuntime,
     model: resolvedModel,
     // The SDK clamps this to "off" for models without reasoning support.
     thinkingLevel,
@@ -737,7 +738,7 @@ async function main() {
     // so prompt() can return before user handlers run. Agent state is updated synchronously.
     const streamedText = lastAssistantTextFromAgentState(session);
     if (!streamedText.trim()) {
-      const msgs = session?.agent?.state?.messages ?? [];
+      const msgs = session?.messages ?? [];
       const lastAssistant = [...msgs].reverse().find((m) => m?.role === "assistant");
       throw new Error(
         `Pi returned empty assistant text. provider=${provider} model=${modelId} ` +
@@ -817,6 +818,7 @@ async function main() {
     corrections,
   });
 
+  session.dispose();
   process.stdout.write(JSON.stringify(result));
 }
 

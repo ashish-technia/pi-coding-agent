@@ -15,8 +15,9 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      # The Pi 1.0 upgrade is planned work (R-13, Phase 2), not a routine bump.
-      - dependency-name: "@mariozechner/pi-coding-agent"
+      # Pi is pinned exactly: a new version changes agent behaviour, so it is a planned
+      # change measured on reference tickets (R-13, R-41), not a routine bump.
+      - dependency-name: "@earendil-works/pi-coding-agent"
     groups:
       npm-minor:
         update-types: [minor, patch]
