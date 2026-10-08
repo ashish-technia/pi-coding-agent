@@ -83,12 +83,16 @@ class RunWorkspaces:
         return str(self.git(issue_key, primary.name).repo_path) if primary else "."
 
     # ------------------------------------------------------------------ lifecycle
-    def ensure(self, issue_key: str, repo: RepoConfig) -> str:
-        """Create the run's worktree for ``repo`` if it is not there; return the commit it sits on."""
+    def ensure(self, issue_key: str, repo: RepoConfig) -> tuple[str, str | None]:
+        """Create the run's worktree for ``repo`` if it is not there.
+
+        Returns the commit it sits on, and a warning when the remote could not be fetched
+        and the worktree therefore starts from the last commit that was.
+        """
         if self.exists(issue_key, repo.name):
             head = self.git(issue_key, repo.name).resolve("HEAD")
             if head:
-                return head
+                return head, None
 
         base = self._base(repo)
         if not base.repo_path.exists():
@@ -96,8 +100,19 @@ class RunWorkspaces:
         if not (base.repo_path / ".git").exists():
             raise RuntimeError(f"Repository path is not a git repository: {base.repo_path}")
 
+        warning = None
         if base.has_remote():
-            base.fetch()
+            try:
+                base.fetch()
+            except RuntimeError as exc:
+                # An expired token or no network should not stop a run from reading and
+                # editing code. It will matter again at the push, which says so itself.
+                reason = str(exc).strip().splitlines()[-1][:200]
+                warning = (
+                    f"Could not fetch {repo.name} from {self.remote_name}, so this run starts from the last "
+                    f"commit that was fetched and may be behind the remote. ({reason})"
+                )
+                logger.warning("%s [%s]", warning, issue_key)
         # A clone without the remote branch (or without a remote at all) still gets a run.
         candidates = [f"{self.remote_name}/{repo.target_branch}", repo.target_branch, "HEAD"]
         ref, sha = None, None
@@ -117,7 +132,7 @@ class RunWorkspaces:
         target.parent.mkdir(parents=True, exist_ok=True)
         base.add_worktree(target, sha)
         logger.info("Worktree for %s in repo %s at %s (%s @ %s)", issue_key, repo.name, target, ref, sha[:10])
-        return sha
+        return sha, warning
 
     def remove(self, issue_key: str, *, branch: str | None = None) -> None:
         """Remove every worktree of a run and its local run branch. Safe when nothing is there."""

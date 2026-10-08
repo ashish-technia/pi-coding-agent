@@ -771,3 +771,20 @@ async def test_run_stops_at_its_budget_and_continues_after_it_is_raised(fakes, m
         assert status["usage"]["cost_usd"] == pytest.approx(0.15)
     finally:
         await svc.stop()
+
+
+async def test_run_starts_from_the_last_fetched_commit_when_the_remote_is_unreachable(service, fakes):
+    """An expired token or no network must not stop planning and coding; the run says it may be stale."""
+    from pi_jira_agent.graph import progress
+
+    clone = base_clone("web")
+    real_url = git(clone, "remote", "get-url", "origin").strip()
+    git(clone, "remote", "set-url", "origin", str(runs_root() / "no-such-remote.git"))
+    try:
+        key = _key()
+        status = await _to_final_gate(service, fakes, key)
+        assert status["base_shas"]["web"] == git(clone, "rev-parse", "origin/develop").strip()
+        warnings = [e["text"] for e in progress.events(key, limit=400) if e.get("ev") == "warning"]
+        assert len(warnings) == 1 and "Could not fetch web" in warnings[0] and "may be behind" in warnings[0]
+    finally:
+        git(clone, "remote", "set-url", "origin", real_url)

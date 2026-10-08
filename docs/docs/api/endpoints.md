@@ -47,6 +47,7 @@ Full status:
 | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → the run's worktree diff, new files included; `phase_diffs` holds one such map per accepted phase, each with only that phase's changes |
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
 | `error`, `stuck_on` | present when `status == "stuck_error"`: a node raised, or the run was interrupted by a restart and already had its one automatic resume |
+| `base_shas` | repo name → the commit the run's worktree was created from |
 | `decision_log` | one entry per answered gate: `gate`, `action`, `by` (`ui` or `jira:<accountId>`), `at` |
 | `usage` | what the run spent on model calls: `by_stage[]` (`stage`, `calls`, `input`, `output`, `cache_read`, `cost_usd`, `unpriced`), totals `calls`, `input`, `output`, `cost_usd`, `unpriced_calls`, and `budget_usd` (null without a budget) |
 | `auto_resumes` | how often the service resumed the run by itself after a restart (0 or 1) |
