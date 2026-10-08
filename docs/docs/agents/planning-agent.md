@@ -31,6 +31,8 @@ const PLAN_MODE_TOOLS = ["read", "grep", "find", "ls"];
 
 So the planner can open files, grep, and list directories to ground its plan in real code, but it has no `bash`, `edit`, or `write` tool, so it cannot change anything. The coding agent is the only session that gets the full tool set.
 
+The allowlist says which tools exist; a second check says where they may reach. Every tool call passes a pre-tool hook before it runs, and in plan mode a `read`, `grep`, `find` or `ls` outside the attached repositories is refused, so the planner cannot be talked into opening the service's own files. A refused read does not count as having read the file. See [the runner protocol](../architecture/technical-design.md#9-the-pi-runner-protocol).
+
 When a run attaches [several repositories](../getting-started/repositories.md), all of them are readable in the one session, and the prompt lists each root with its absolute path and its configured `properties`. One plan therefore covers the whole change, which is the point: a contract and its caller get planned together instead of in ignorance of each other.
 
 ### The planning procedure

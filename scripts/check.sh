@@ -5,6 +5,7 @@
 #   scripts/check.sh types      pyright (basic)
 #   scripts/check.sh test       pytest on SQLite
 #   scripts/check.sh test-pg    pytest on Postgres (PI_TEST_DATABASE_URL, default: the compose service on :5440)
+#   scripts/check.sh runner     Pi runner tests (node --test, scripted model, no network)
 #   scripts/check.sh frontend   oxlint + type-checked Vite build
 #   scripts/check.sh docs       Docusaurus build (fails on broken links)
 #   scripts/check.sh all        everything above except test-pg, which runs when PI_TEST_DATABASE_URL is set
@@ -48,6 +49,11 @@ run_test_pg() {
     "$(python_bin)" -m pytest -q
 }
 
+run_runner() {
+  npm_install_if_missing .
+  node --test "node/tests/*.test.mjs"
+}
+
 run_frontend() {
   npm_install_if_missing frontend
   (cd frontend && npm run lint && npm run build)
@@ -63,6 +69,7 @@ case "${1:-all}" in
   types) run_types ;;
   test) run_test ;;
   test-pg) run_test_pg ;;
+  runner) run_runner ;;
   frontend) run_frontend ;;
   docs) run_docs ;;
   all)
@@ -70,11 +77,12 @@ case "${1:-all}" in
     run_types
     run_test
     if [[ -n "${PI_TEST_DATABASE_URL:-}" ]]; then run_test_pg; fi
+    run_runner
     run_frontend
     run_docs
     ;;
   *)
-    echo "Unknown check '$1'. Use: lint | types | test | test-pg | frontend | docs | all" >&2
+    echo "Unknown check '$1'. Use: lint | types | test | test-pg | runner | frontend | docs | all" >&2
     exit 2
     ;;
 esac

@@ -1,7 +1,14 @@
 import fs from "node:fs";
+import os from "node:os";
 import process from "node:process";
 import path from "node:path";
-import { ModelRuntime, SessionManager, createAgentSession } from "@earendil-works/pi-coding-agent";
+import { pathToFileURL } from "node:url";
+import {
+  DefaultResourceLoader,
+  ModelRuntime,
+  SessionManager,
+  createAgentSession,
+} from "@earendil-works/pi-coding-agent";
 
 /**
  * Pi's registry uses dated API ids per provider. Common short names (e.g. claude-sonnet-4) may
@@ -98,6 +105,89 @@ function resolveRepoPath(roots, multi, repoName, filePath) {
   const abs = path.resolve(root.path, rest);
   // A "../.." path can climb out of the repo it started in.
   return rootFor(roots, abs) ? { root, rel: relPosix(root.path, abs), abs } : null;
+}
+
+const WRITE_TOOLS = new Set(["edit", "write"]);
+const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const SHELL_TOOLS = new Set(["bash", "powershell"]);
+
+/**
+ * Shell commands refused in execute mode. A command string is easy to disguise, so this is
+ * defence in depth, not the boundary: it stops the agent doing by accident what the service
+ * does itself (commit, push) and the obvious ways of moving data off the machine.
+ */
+const SHELL_DENYLIST = [
+  [/\bgit\b[^|;&\n]*\s(push|remote|commit)\b/i, "git commit, git push and git remote are done by the service, not by the agent"],
+  [
+    /(^|[\s;&|(`])(curl|wget|ssh|scp|sftp|nc|ncat|telnet|ftp|iwr|irm|invoke-webrequest|invoke-restmethod)(\.exe)?(\s|$)/i,
+    "network clients are not available in a run",
+  ],
+];
+
+/** Where a tool path really points: `~` expanded, relative to `cwd`, symlinks followed. */
+function realTarget(cwd, raw) {
+  let p = String(raw ?? "").trim();
+  if (p.startsWith("@")) p = p.slice(1);
+  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) p = path.join(os.homedir(), p.slice(1));
+  const abs = path.resolve(cwd, p || ".");
+  // Resolve links through the deepest part that exists, so a link inside a repository cannot
+  // point a tool outside it and a file that is about to be created is still judged.
+  let existing = abs;
+  const tail = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    tail.unshift(path.basename(existing));
+    existing = parent;
+  }
+  try {
+    return path.join(fs.realpathSync.native(existing), ...tail);
+  } catch {
+    return abs;
+  }
+}
+
+/** A glob that climbs out of its search directory: absolute, or with a `..` segment. */
+const escapesSearchDir = (pattern) =>
+  typeof pattern === "string" && (path.isAbsolute(pattern) || /(^|[\\/])\.\.([\\/]|$)/.test(pattern));
+
+/**
+ * The pre-tool check (R-11). Returns why a call is refused, or null to let it run.
+ *
+ * - `edit` and `write` may only touch the attached repositories, in every mode.
+ * - In a read-only mode `read`, `grep`, `find` and `ls` are held to the same roots, because a
+ *   read-only session could otherwise be talked into reading the service's own files.
+ * - Shell commands are checked against SHELL_DENYLIST, and refused outright when read-only.
+ */
+export function makeToolCheck({ roots, cwd, readOnly }) {
+  const realRoots = roots.map((r) => ({ ...r, path: realTarget(r.path, ".") }));
+  const names = roots.map((r) => r.name || r.path).join(", ");
+  const outside = (p) => !rootFor(realRoots, realTarget(cwd, p));
+  return (toolName, input) => {
+    const args = input && typeof input === "object" ? input : {};
+    if (WRITE_TOOLS.has(toolName)) {
+      if (readOnly) return `${toolName} is not available: this session is read-only`;
+      if (outside(args.path)) return `${toolName} of ${args.path} is outside the attached repositories (${names})`;
+      return null;
+    }
+    if (SHELL_TOOLS.has(toolName)) {
+      if (readOnly) return `${toolName} is not available: this session is read-only`;
+      const command = String(args.command ?? "");
+      for (const [pattern, why] of SHELL_DENYLIST) {
+        if (pattern.test(command)) return `${toolName} command refused: ${why}`;
+      }
+      return null;
+    }
+    if (READ_TOOLS.has(toolName) && readOnly) {
+      if (outside(args.path ?? ".")) {
+        return `${toolName} of ${args.path} is outside the attached repositories (${names})`;
+      }
+      if (escapesSearchDir(toolName === "find" ? args.pattern : args.glob)) {
+        return `${toolName} pattern leaves the directory it searches; search inside the attached repositories (${names})`;
+      }
+    }
+    return null;
+  };
 }
 
 /** How many correction rounds a plan gets when validation finds unverified paths. */
@@ -599,9 +689,13 @@ function validatePlan(result, roots, multi, readPaths, reviewerNotes, rejected) 
   return problems;
 }
 
-async function main() {
-  const input = await readStdin();
-  const parsed = JSON.parse(input);
+/**
+ * Run one Pi session for `parsed` (the payload Python writes on stdin) and return the result.
+ *
+ * `deps` exists for tests: `modelRuntime` and `model` replace the real provider (Pi ships a
+ * scripted one), and `emit` receives the live events instead of stderr.
+ */
+export async function runAgent(parsed, deps = {}) {
   const issue = parsed.issue;
   const modelId = parsed.model;
   const systemPrompt = parsed.systemPrompt;
@@ -622,18 +716,20 @@ async function main() {
   const roots = normaliseRoots(parsed.repoRoots, cwd);
   const multi = roots.length > 1;
 
-  const providerApiKey = process.env.PI_PROVIDER_API_KEY;
-  if (!providerApiKey) {
-    throw new Error("PI_PROVIDER_API_KEY env var is required.");
-  }
-
   // Pi 1.x: one ModelRuntime owns credentials and the model catalogue. The catalogue is the
   // one bundled with the pinned SDK and is not refreshed over the network here, so the same
   // SDK version always resolves the same models.
-  const modelRuntime = await ModelRuntime.create();
-  await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
+  let modelRuntime = deps.modelRuntime;
+  if (!modelRuntime) {
+    const providerApiKey = process.env.PI_PROVIDER_API_KEY;
+    if (!providerApiKey) {
+      throw new Error("PI_PROVIDER_API_KEY env var is required.");
+    }
+    modelRuntime = await ModelRuntime.create();
+    await modelRuntime.setRuntimeApiKey(provider, providerApiKey);
+  }
 
-  const resolvedModel = resolveSessionModel(modelRuntime, provider, modelId);
+  const resolvedModel = deps.model ?? resolveSessionModel(modelRuntime, provider, modelId);
   if (!resolvedModel) {
     throw new Error(
       `Unknown model for provider "${provider}" id "${modelId}". ` +
@@ -641,12 +737,53 @@ async function main() {
     );
   }
 
+  const eventTypes = [];
+  const toolCalls = {};
+  const readPaths = new Set();
+  const pendingReads = new Map();
+  const blockedCalls = [];
+  let turn = 0;
+  const startedAt = Date.now();
+
+  /**
+   * Live activity for the Python side: one JSON object per line on stderr, prefixed with
+   * "@@PI ". Python forwards these to the UI while the agent is still running.
+   */
+  const emit = (payload) => {
+    const event = { t: Math.round((Date.now() - startedAt) / 1000), ...payload };
+    if (deps.emit) deps.emit(event);
+    else process.stderr.write(`@@PI ${JSON.stringify(event)}\n`);
+  };
+
+  // The pre-tool hook: Pi asks every `tool_call` handler before a tool runs, and a handler
+  // that throws blocks the call too, so this fails closed.
+  const checkToolCall = makeToolCheck({ roots, cwd, readOnly: !executeChanges });
+  const toolGuard = (pi) => {
+    pi.on("tool_call", (event) => {
+      const reason = checkToolCall(event.toolName, event.input);
+      if (!reason) return undefined;
+      blockedCalls.push(`${event.toolName}: ${reason}`);
+      emit({ ev: "blocked", tool: event.toolName, text: reason });
+      return { block: true, reason: `Blocked by the run's policy: ${reason}.` };
+    });
+  };
+  // `noExtensions`: extension files are code. Nothing from the repository under work, or from
+  // the service account's own Pi configuration, is loaded into this process; only the guard.
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    noExtensions: true,
+    extensionFactories: [toolGuard],
+  });
+  await resourceLoader.reload();
+
   const sessionOptions = {
     cwd,
     agentDir,
     sessionManager: SessionManager.inMemory(cwd),
     modelRuntime,
     model: resolvedModel,
+    resourceLoader,
     // The SDK clamps this to "off" for models without reasoning support.
     thinkingLevel,
   };
@@ -656,20 +793,6 @@ async function main() {
   }
 
   const { session } = await createAgentSession(sessionOptions);
-
-  const eventTypes = [];
-  const toolCalls = {};
-  const readPaths = new Set();
-  let turn = 0;
-  const startedAt = Date.now();
-
-  /**
-   * Live activity for the Python side: one JSON object per line on stderr, prefixed with
-   * "@@PI ". Python forwards these to the UI while the agent is still running.
-   */
-  const emit = (payload) => {
-    process.stderr.write(`@@PI ${JSON.stringify({ t: Math.round((Date.now() - startedAt) / 1000), ...payload })}\n`);
-  };
 
   const summariseArgs = (toolName, args) => {
     if (!args || typeof args !== "object") return "";
@@ -713,12 +836,18 @@ async function main() {
     if (event?.type === "tool_execution_start" && event.toolName) {
       toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
       if (event.toolName === "read" && event.args?.path) {
-        // Keyed the same way plan steps are, so "did you read this file?" can be answered.
-        readPaths.add(displayPath(roots, multi, event.args.path));
+        pendingReads.set(event.toolCallId, event.args.path);
       }
       emit({ ev: "tool", tool: event.toolName, args: summariseArgs(event.toolName, event.args), id: event.toolCallId });
     }
     if (event?.type === "tool_execution_end" && event.toolName) {
+      const readPath = pendingReads.get(event.toolCallId);
+      pendingReads.delete(event.toolCallId);
+      if (readPath && !event.isError) {
+        // Only a read that returned content counts; a blocked or failed one did not show the
+        // file. Keyed the same way plan steps are, so "did you read this file?" can be answered.
+        readPaths.add(displayPath(roots, multi, readPath));
+      }
       let size = 0;
       const r = event.result;
       if (typeof r === "string") size = r.length;
@@ -767,9 +896,9 @@ async function main() {
 
   let corrections = 0;
   if (executeChanges && rejected.length) {
-    // Pi's tools accept any absolute path and this build exposes no pre-tool hook, so this
-    // is detection, not prevention: the edit already happened. Fail loudly rather than
-    // hand Python a result that quietly touched something nobody attached.
+    // The pre-tool hook already refuses an edit or write outside the roots. This is the
+    // second line: a file changed some other way (a shell command) and then reported.
+    // Fail loudly rather than hand Python a result that touched something nobody attached.
     throw new Error(
       `The coding agent reported files outside the attached repositories ` +
         `(${roots.map((r) => r.name || r.path).join(", ")}): ${[...new Set(rejected)].join(", ")}`
@@ -807,7 +936,8 @@ async function main() {
     .join(" ");
   process.stderr.write(
     `[pi-runner] mode=${mode} thinking=${thinkingLevel} tools=[${toolSummary || "none"}] ` +
-      `filesRead=${readPaths.size} planSteps=${result.plan_steps.length} corrections=${corrections}\n`
+      `filesRead=${readPaths.size} planSteps=${result.plan_steps.length} corrections=${corrections} ` +
+      `blocked=${blockedCalls.length}\n`
   );
   emit({
     ev: "done",
@@ -816,13 +946,22 @@ async function main() {
     files_read: readPaths.size,
     plan_steps: result.plan_steps.length,
     corrections,
+    blocked: blockedCalls.length,
   });
 
   session.dispose();
+  return result;
+}
+
+async function main() {
+  const result = await runAgent(JSON.parse(await readStdin()));
   process.stdout.write(JSON.stringify(result));
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error?.stack ?? String(error)}\n`);
-  process.exit(1);
-});
+// Only when run as the script: tests import this module and call runAgent themselves.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    process.stderr.write(`${error?.stack ?? String(error)}\n`);
+    process.exit(1);
+  });
+}

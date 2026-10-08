@@ -140,7 +140,7 @@ export interface ActivityEvent {
   seq: number
   at: number
   source?: 'pi' | 'llm'
-  ev: 'node' | 'start' | 'model_turn' | 'assistant' | 'tool' | 'tool_done' | 'validation' | 'done' | 'error' | 'llm_call' | 'llm_done'
+  ev: 'node' | 'start' | 'model_turn' | 'assistant' | 'tool' | 'tool_done' | 'blocked' | 'validation' | 'done' | 'error' | 'llm_call' | 'llm_done'
   t?: number
   node?: string
   label?: string

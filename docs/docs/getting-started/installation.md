@@ -47,6 +47,7 @@ scripts/check.sh lint       # ruff lint + format check
 scripts/check.sh types      # pyright (basic mode)
 scripts/check.sh test       # pytest on SQLite
 scripts/check.sh test-pg    # pytest on Postgres (default: the compose service on :5440)
+scripts/check.sh runner     # Pi runner tests: node --test with a scripted model, no network
 scripts/check.sh frontend   # oxlint + type-checked Vite build
 scripts/check.sh docs       # Docusaurus build; fails on broken links
 scripts/check.sh all        # everything; test-pg only when PI_TEST_DATABASE_URL is set
