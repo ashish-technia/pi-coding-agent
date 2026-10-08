@@ -453,6 +453,25 @@ each run has its own sandbox.
 | plan | read, grep, find, ls | orient → locate → read fully → check tests/docs → decide → phases; hard rules on paths/evidence/verification |
 | refine | same | previous plan + reviewer notes; answer in `notes_response`; complete revised plan |
 | execute | read, bash, edit, write | implement the work order; re-read before editing; run verification with bash; no git commit/push/checkout |
+| review | read, grep, find, ls, `changed_files`, `file_diff` | judge the whole change against the requirement, across phases and repositories, and against the team rules; every finding cites an opened file |
+
+**Review mode** (`mode: "review"`, `node/review-mode.mjs`) is the fourth mode and has its own payload
+and result. The payload carries `review`: `diff` (repository name to `{base, tree}`, two commits or
+trees), `rules`, and on a re-review `previous` (the findings a rework was meant to fix) and `notes`.
+`issue` may be null and `requirements` absent, in which case the prompt tells the reviewer not to look
+for missing features. The session has no shell. It sees the change through two custom tools that run
+`git diff` with fixed arguments, so nothing is cut to fit a prompt: `changed_files()` lists every
+changed file with its line counts and `file_diff(path, repo?)` returns one file's diff, cut at 60,000
+characters with a note.
+
+The result is `summary`, `findings[]` (`number`, `severity` must/should/note, `category`, `claim`,
+`suggestion`, `repo`, `file`, `line`), `resolved[]`, `files_changed[]`, `not_reviewed[]`,
+`dropped_findings[]` and `usage`. Grounding happens in the runner, as `validatePlan` does for plans:
+a finding that cites a file the session never opened (with `read` or `file_diff`) is dropped and the
+reason recorded; the one exception is category `unmet_criterion`, which has no line to cite. Findings
+are numbered after sorting by severity. A changed file the session never opened is listed in
+`not_reviewed`; lockfiles and generated files are exempt. Python's side is
+`PiAgentExecutor.run_review`, which returns a `ReviewResult`.
 
 **Timeout**: `PI_TIMEOUT_SECONDS` per call; Python kills the child and the node fails with a retryable error.
 

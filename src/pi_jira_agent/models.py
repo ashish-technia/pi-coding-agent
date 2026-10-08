@@ -342,6 +342,35 @@ class AgentResult(BaseModel):
     usage: dict | None = None
 
 
+# --- Review of a finished change (R-51) ----------------------------------------
+
+
+class ReviewFinding(BaseModel):
+    """One thing the reviewer found, tied to a line it actually opened."""
+
+    number: int  # 1 is the most serious; this is what `/fix 1 3` refers to
+    severity: Literal["must", "should", "note"] = "should"
+    category: str = "other"
+    claim: str
+    suggestion: str = ""
+    # Empty only for an acceptance criterion that nothing implements.
+    file: str = ""
+    line: int | None = None
+    repo: str = ""  # empty on single-repo runs
+
+
+class ReviewResult(BaseModel):
+    """What the review session returned, after the runner dropped ungrounded findings."""
+
+    summary: str = ""
+    findings: list[ReviewFinding] = []
+    resolved: list[int] = []  # on a re-review: numbers of the earlier findings now fixed
+    files_changed: list[str] = []
+    not_reviewed: list[str] = []  # changed files the session never opened
+    dropped_findings: list[str] = []  # why each discarded finding was discarded
+    usage: dict | None = None
+
+
 class PullRequestResult(BaseModel):
     pr_id: int
     pr_url: str
