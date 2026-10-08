@@ -12,6 +12,7 @@ export default function App({ session }: { session: Session }) {
           <NavLink to="/" end>
             Runs
           </NavLink>
+          <NavLink to="/reviews">Reviews</NavLink>
           <NavLink to="/settings">Settings</NavLink>
           {session.mode === 'oidc' && (
             <>

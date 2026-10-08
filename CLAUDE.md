@@ -38,7 +38,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (96 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (108 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -96,6 +96,11 @@ A Jira issue becomes a reviewed PR through a LangGraph `StateGraph` that pauses 
   compose is one instance of it. `docker/keycloak/realm.json` must never contain users or secrets.
 - `registry.py` is a *separate* small `runs` table (SQLite or Postgres, chosen the same way as the
   checkpointer) so `/api/runs` can list runs without scanning checkpoints. Keep both backends in sync.
+- `reviews.py` (`ReviewService`) is the standalone branch review (R-58): its own `reviews` table with the
+  same two backends, and one background task per review, deliberately not a graph. It reuses
+  `RunWorkspaces` (keyed by the review id instead of an issue key), the `pr_review` Pi executor and the
+  service's `PiSlots`, which is why `AutomationService` owns `slots` and passes it to `build_graph`.
+  `main.py` builds it next to `automation`; a test that needs it patches `main.reviews`.
 
 ### Gates, interrupts and decisions
 

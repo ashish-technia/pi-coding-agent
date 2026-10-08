@@ -113,3 +113,34 @@ reviewed, and `fix` is not offered.
 
 The model runs through Pi, so its id must be one Pi's catalogue knows. An unknown id fails the
 first review with the runner's "Unknown model" error; it is not checked at startup.
+
+## Reviewing a branch on its own
+
+**Files:** `src/pi_jira_agent/reviews.py`, the **Reviews** page in the UI
+
+The same reviewer can be pointed at any branch, without a run. On the Reviews page, enter a
+branch name, tick the repositories and optionally give a Jira issue key.
+
+- **What is reviewed.** In each chosen repository, everything between the commit the branch
+  last shared with that repository's target branch (the merge-base) and the branch's head:
+  what a pull request of the branch would show. The remote's copy of the branch is used, after
+  a fetch.
+- **One branch name.** It must exist in every chosen repository. If it is missing in one, the
+  review is refused before anything is checked out, naming the repository.
+- **What it is judged against.** With a Jira issue key, the raw issue (summary, description,
+  comments). The requirements agent is not run, because its output is only trustworthy after a
+  human gate. Without a key, the review covers the team rules, correctness and security, and
+  the prompt tells the reviewer not to look for missing features.
+- **What it does not do.** Nothing is edited, committed or posted to Bitbucket. There is no
+  fix action: the findings are a report.
+- **How it runs.** A plain background task, not a graph: check the branch out in a worktree
+  under `RUNS_ROOT/<review id>/<repo>`, run the review session, store the result, remove the
+  worktree. It takes one of the `MAX_CONCURRENT_RUNS` slots, so it waits behind running Pi
+  sessions. It uses the `PR_REVIEW_*` model and rules.
+- **What is kept.** The findings and the commit SHAs, in a `reviews` table in the same database
+  as the run registry, until someone deletes the review. A review describes fixed commits;
+  reviewing the branch again creates a new entry.
+- **Restarts.** A review cut short by a restart is marked `interrupted`. It is not resumed;
+  start it again.
+
+Any signed-in user may start, read and delete reviews. Roles arrive with R-26.

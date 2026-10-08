@@ -15,6 +15,7 @@ from .graph import progress
 from .graph.build import build_graph, make_checkpointer, make_jira_client, make_serde, make_workspaces
 from .graph.decisions import parse_decision, resolve_fix
 from .graph.progress import NODE_LABELS, STAGE_OF_NODE
+from .graph.slots import PiSlots
 from .graph.state import initial_state
 from .models import JiraIssue
 from .registry import make_registry
@@ -68,7 +69,9 @@ def _pending_of(state) -> dict | None:
 
 class AutomationService:
     def __init__(self):
-        self._graph_builder = build_graph()
+        # One cap on Pi sessions for runs and standalone reviews alike.
+        self.slots = PiSlots(settings.max_concurrent_runs)
+        self._graph_builder = build_graph(self.slots)
         self._checkpointer_cm = None
         self.graph: CompiledStateGraph | None = None
         self._tasks: dict[str, asyncio.Task] = {}

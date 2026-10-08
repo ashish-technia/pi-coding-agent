@@ -10,8 +10,10 @@ from pydantic import BaseModel
 
 from . import auth
 from .config import settings
+from .graph.build import make_jira_client, make_pi_executor
 from .models import JiraIssue, JiraWebhookPayload
 from .queue_worker import make_job_queue
+from .reviews import ReviewConflict, ReviewService, make_review_store
 from .service import AutomationService, ConflictError
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +23,15 @@ _STATIC_DIR = Path(__file__).parent / "static"
 _SPA_DIR = _STATIC_DIR / "dist"
 
 automation = AutomationService()
+# Standalone reviews share the runs' worktree root and their cap on Pi sessions.
+reviews = ReviewService(
+    store=make_review_store(settings.database_url, settings.graph_checkpoint_db),
+    workspaces=automation.workspaces,
+    slots=automation.slots,
+    reviewer=make_pi_executor("pr_review", thinking_level=settings.pr_review_thinking_level),
+    jira=make_jira_client(),
+    rules=settings.pr_review_rules(),
+)
 
 
 async def _handle_job(job: dict) -> None:
@@ -47,11 +58,13 @@ job_queue = make_job_queue(settings.redis_url, settings.queue_max_size, _handle_
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await automation.start()
+    await reviews.start()
     if settings.use_queue:
         await job_queue.start()
     yield
     if settings.use_queue:
         await job_queue.stop()
+    await reviews.stop()
     await automation.stop()
 
 
@@ -100,6 +113,11 @@ async def conflict_error_handler(_: Request, exc: ConflictError) -> JSONResponse
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
+@app.exception_handler(ReviewConflict)
+async def review_conflict_handler(_: Request, exc: ReviewConflict) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 @app.exception_handler(LookupError)
 async def lookup_error_handler(_: Request, exc: LookupError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(exc)})
@@ -120,6 +138,15 @@ class StartRunRequest(BaseModel):
     reporter: str | None = None
     # Review the whole change before the final gate. Omitted uses PR_REVIEW_DEFAULT.
     pr_review: bool | None = None
+
+
+class StartReviewRequest(BaseModel):
+    # The branch to review. It must exist in every chosen repository.
+    branch: str
+    # Repositories by name from repos.json. Empty/omitted uses the repos flagged default_selected.
+    repos: list[str] | None = None
+    # Optional Jira issue the change is meant to implement; the review is judged against it.
+    issue_key: str | None = None
 
 
 class RetryRequest(BaseModel):
@@ -232,6 +259,43 @@ async def start_run(req: StartRunRequest) -> dict:
     if not _is_allowed_project(project):
         raise HTTPException(status_code=403, detail=f"Project {project} is not in ALLOWED_PROJECTS")
     return await automation.start_run(key, channel="ui", inline_issue=inline, repos=req.repos, pr_review=req.pr_review)
+
+
+# --------------------------------------------------------------------------- standalone reviews
+
+
+@app.get("/api/reviews")
+async def list_reviews(limit: int = 50) -> list[dict]:
+    return await reviews.list(limit)
+
+
+@app.post("/api/reviews")
+async def start_review(req: StartReviewRequest, request: Request) -> dict:
+    issue_key = (req.issue_key or "").strip().upper()
+    if issue_key and not _is_allowed_project(issue_key.split("-")[0]):
+        raise HTTPException(status_code=403, detail=f"Project {issue_key.split('-')[0]} is not in ALLOWED_PROJECTS")
+    user: auth.Identity = request.state.user
+    return await reviews.start_review(
+        repos=settings.selected_repos(req.repos),
+        branch=req.branch,
+        issue_key=issue_key,
+        started_by="ui" if settings.auth_mode == "none" else user.label,
+    )
+
+
+@app.get("/api/reviews/{review_id}")
+async def get_review(review_id: str) -> dict:
+    review = await reviews.get(review_id)
+    if not review:
+        raise HTTPException(status_code=404, detail=f"No review {review_id}")
+    return review
+
+
+@app.delete("/api/reviews/{review_id}")
+async def delete_review(review_id: str) -> dict:
+    if not await reviews.delete(review_id):
+        raise HTTPException(status_code=404, detail=f"No review {review_id}")
+    return {"deleted": review_id}
 
 
 @app.get("/api/runs/{issue_key}")

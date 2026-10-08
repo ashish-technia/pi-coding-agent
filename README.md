@@ -96,6 +96,9 @@ list in `repos.json`; see [Repositories](docs/docs/getting-started/repositories.
 | `GET` | `/api/runs/{key}` | full status, including the pending decision |
 | `POST` | `/api/runs/{key}/decision` | `{"action": ...}` validated against the pending gate |
 | `POST` | `/api/runs/{key}/retry` | resume a run stuck on an error (`{"skip_pr_review": true}` continues without a failed PR review) |
+| `POST` | `/api/reviews` | review a branch on its own (`{"branch": "feature/x", "repos": ["web"]}`; optional `issue_key`) |
+| `GET` | `/api/reviews`, `/api/reviews/{id}` | standalone reviews and their findings |
+| `DELETE` | `/api/reviews/{id}` | delete a finished review |
 | `GET` | `/api/config` | effective configuration (no secrets) |
 | `GET` | `/api/auth/config` | open: how the UI signs in (`mode`, issuer, client id) |
 | `POST` | `/webhooks/jira/trigger` | flow 2: `{"issue_key"}` from a Jira Automation rule |
@@ -114,10 +117,10 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-scripts/check.sh all                        # lint, types, 96 tests, runner tests, frontend and docs builds, as CI runs them
+scripts/check.sh all                        # lint, types, 108 tests, runner tests, frontend and docs builds, as CI runs them
 scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site
 ```
 
-Repository layout: `src/pi_jira_agent/graph/` (nodes, gates, routers, decisions, repo context), `service.py` (run lifecycle), `main.py` (API), `config.py` (settings and the `repos.json` loader), `channels/` (Jira comment channel), `node/pi-sdk-runner.mjs` (the only place Pi is invoked), `frontend/` (SPA), `tests/`, `docs/`.
+Repository layout: `src/pi_jira_agent/graph/` (nodes, gates, routers, decisions, repo context), `service.py` (run lifecycle), `reviews.py` (standalone branch reviews), `usage.py` (cost ledger), `main.py` (API), `config.py` (settings and the `repos.json` loader), `channels/` (Jira comment channel), `node/pi-sdk-runner.mjs` (the only place Pi is invoked), `frontend/` (SPA), `tests/`, `docs/`.

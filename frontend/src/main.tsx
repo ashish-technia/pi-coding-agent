@@ -6,6 +6,8 @@ import './index.css'
 import App from './App'
 import { initAuth } from './auth'
 import HomePage from './pages/HomePage'
+import ReviewPage from './pages/ReviewPage'
+import ReviewsPage from './pages/ReviewsPage'
 import RunPage from './pages/RunPage'
 import SettingsPage from './pages/SettingsPage'
 
@@ -22,6 +24,8 @@ initAuth()
             <Route element={<App session={session} />}>
               <Route index element={<HomePage />} />
               <Route path="runs/:issueKey" element={<RunPage />} />
+              <Route path="reviews" element={<ReviewsPage />} />
+              <Route path="reviews/:reviewId" element={<ReviewPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>

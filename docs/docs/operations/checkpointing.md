@@ -24,6 +24,12 @@ The full `GraphState` is serialized using `JsonPlusSerializer` with registered P
 
 ---
 
+Two small tables sit beside the checkpoints in the same database and are not checkpoints: `runs`
+(the registry the run list reads) and `reviews` (standalone branch reviews: branch, repositories,
+commit SHAs, status and the findings as JSON). Both are created on startup with
+`CREATE TABLE IF NOT EXISTS`; there are no migrations. A standalone review has no checkpoint at
+all: one cut short by a restart is marked `interrupted` and has to be started again.
+
 ## Restart recovery behaviour
 
 When the server restarts, `AutomationService.start()` re-opens the checkpoint DB. The in-process `_tasks` dict and `progress` dict are empty. On the next call to `process_issue()` or a status poll, the service reads the checkpoint:

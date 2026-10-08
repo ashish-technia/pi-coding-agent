@@ -223,6 +223,7 @@ class FakeRunner:
         self.review_calls: list[dict] = []
         self.review_script: list[list[dict]] = []
         self.review_error: str | None = None
+        self.review_gate = None  # an asyncio.Event a test sets to hold every review until released
         self.review_usage = {"input": 30000, "output": 600, "cache_read": 0, "cache_write": 0, "cost": 0.02}
 
     async def review(
@@ -245,12 +246,16 @@ class FakeRunner:
             {
                 "key": key,
                 "repos": sorted(diff),
+                "diff": diff,
+                "issue": issue.key if issue else None,
                 "rules": rules,
                 "requirements": requirements.title if requirements else None,
                 "previous": [f["number"] for f in previous or []],
                 "notes": notes,
             }
         )
+        if self.review_gate is not None:
+            await self.review_gate.wait()
         if self.review_error:
             raise RuntimeError(self.review_error)
         index = len(self.review_calls) - 1
