@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from ... import usage
+from ...config import StageModelConfig
 from ...git_client import GitBranchClient
 from ...models import AgentResult, JiraIssue
 from ...pi_agent import PiAgentExecutor
@@ -37,12 +39,20 @@ def phase_plan(plan: AgentResult, mode: str, phase_index: int) -> AgentResult:
 
 
 def make_coding_agent(
-    pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces, slots: PiSlots
+    pi_agent: PiAgentExecutor,
+    repo_map: RepoMap,
+    workspaces: RunWorkspaces,
+    slots: PiSlots,
+    *,
+    budget_usd: float = 0.0,
 ) -> CodingNode:
+    cfg = StageModelConfig(provider=pi_agent.provider, model=pi_agent.model, api_key="")
+
     async def coding_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         key = state["issue_key"]
         progress.mark(issue.key, "coding_agent")
+        usage.check_budget(state, budget_usd)
         plan_result: AgentResult = state["plan_result"]
         mode = state.get("execution_mode", "all")
         phase_index = state.get("phase_index", 0)
@@ -109,6 +119,7 @@ def make_coding_agent(
                 plan=work_order,
                 requirements=state.get("requirements"),
                 review_feedback=review_feedback if iteration > 0 else "",
+                max_cost_usd=usage.remaining(state, budget_usd),
             )
         logger.info("Coding agent completed for issue %s", issue.key)
 
@@ -137,6 +148,7 @@ def make_coding_agent(
         await asyncio.to_thread(capture)
 
         return {
+            "usage": usage.appended(state, usage.from_pi("coding", cfg, code_result.usage)),
             "code_result": code_result,
             "diffs": diffs,
             "phase_diff": phase_diff,

@@ -3,6 +3,8 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from ... import usage
+from ...config import StageModelConfig
 from ...models import RequirementsSpec, ScopeCheck
 from .. import progress
 from ..state import GraphState
@@ -37,12 +39,16 @@ _SCOPE_SYSTEM = (
 )
 
 
-def make_requirements_agent(llm):
+def make_requirements_agent(
+    llm, *, model: StageModelConfig | None = None, prices: usage.Prices | None = None, budget_usd: float = 0.0
+):
     structured = llm.with_structured_output(RequirementsSpec)
+    cfg = model or StageModelConfig(provider="", model="", api_key="")
 
     async def requirements_agent(state: GraphState) -> dict:
         issue = state["issue"]
         progress.mark(issue.key, "requirements_agent")
+        usage.check_budget(state, budget_usd)
         notes = state.get("requirements_notes", "")
         previous = state.get("requirements")
 
@@ -68,8 +74,12 @@ def make_requirements_agent(llm):
                 "text": "revising with reviewer notes" if notes else "framing from issue + comments",
             },
         )
-        spec: RequirementsSpec = await structured.ainvoke(
-            [SystemMessage(content=_FRAMING_SYSTEM), HumanMessage(content="\n".join(parts))]
+        spec, used = await usage.tracked(
+            structured,
+            [SystemMessage(content=_FRAMING_SYSTEM), HumanMessage(content="\n".join(parts))],
+            stage="requirements",
+            cfg=cfg,
+            prices=prices or {},
         )
         progress.add_event(
             issue.key,
@@ -86,6 +96,7 @@ def make_requirements_agent(llm):
             "requirements_notes": "",
             "scope_check": None,
             "scope_acknowledged": False,
+            "usage": usage.appended(state, used),
             "status": "pending_requirements",
             "current_node": "requirements_agent",
         }
@@ -93,8 +104,11 @@ def make_requirements_agent(llm):
     return requirements_agent
 
 
-def make_scope_check(llm):
+def make_scope_check(
+    llm, *, model: StageModelConfig | None = None, prices: usage.Prices | None = None, budget_usd: float = 0.0
+):
     structured = llm.with_structured_output(ScopeCheck)
+    cfg = model or StageModelConfig(provider="", model="", api_key="")
 
     async def scope_check(state: GraphState) -> dict:
         issue = state["issue"]
@@ -117,14 +131,20 @@ def make_scope_check(llm):
                 json.dumps(edited.model_dump(), indent=2),
             ]
         )
+        usage.check_budget(state, budget_usd)
         logger.info("Checking scope of edited requirements for %s", issue.key)
         progress.add_event(
             issue.key,
             {"source": "llm", "ev": "llm_call", "stage": "scope_check", "text": "comparing your edits with the issue"},
         )
-        result: ScopeCheck = await structured.ainvoke(
-            [SystemMessage(content=_SCOPE_SYSTEM), HumanMessage(content=prompt)]
+        result, used = await usage.tracked(
+            structured,
+            [SystemMessage(content=_SCOPE_SYSTEM), HumanMessage(content=prompt)],
+            stage="scope_check",
+            cfg=cfg,
+            prices=prices or {},
         )
+        ledger = usage.appended(state, used)
         progress.add_event(
             issue.key,
             {
@@ -136,7 +156,12 @@ def make_scope_check(llm):
         )
         if result.out_of_scope_items:
             logger.info("Scope check for %s flagged %d item(s)", issue.key, len(result.out_of_scope_items))
-            return {"scope_check": result, "status": "pending_requirements", "current_node": "scope_check"}
-        return {"scope_check": result, "status": "planning", "current_node": "scope_check"}
+            return {
+                "scope_check": result,
+                "usage": ledger,
+                "status": "pending_requirements",
+                "current_node": "scope_check",
+            }
+        return {"scope_check": result, "usage": ledger, "status": "planning", "current_node": "scope_check"}
 
     return scope_check

@@ -337,6 +337,9 @@ class AgentResult(BaseModel):
     notes_response: str = ""
     # Optional grouping of plan_steps into phases the user may execute one at a time.
     phases: list[PlanPhase] = []
+    # What the Pi session used: input, output, cache_read, cache_write (tokens) and cost (USD).
+    # Set by the runner; the node moves it into the run's usage ledger.
+    usage: dict | None = None
 
 
 class PullRequestResult(BaseModel):

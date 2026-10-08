@@ -124,24 +124,35 @@ def build_graph():
 
     requirements_llm = make_requirements_llm()
     review_llm = make_review_llm()
+    budget = settings.run_budget_usd
+    prices = settings.prices()
+    requirements_model = settings.stage_model("requirements")
     planner = make_pi_executor("planning")
     coder = make_pi_executor("coding")
 
     graph = StateGraph(GraphState)
     graph.add_node("fetch_issue", make_fetch_issue(jira))
-    graph.add_node("requirements_agent", make_requirements_agent(requirements_llm))
+    graph.add_node(
+        "requirements_agent",
+        make_requirements_agent(requirements_llm, model=requirements_model, prices=prices, budget_usd=budget),
+    )
     graph.add_node("await_requirements", await_requirements)
-    graph.add_node("scope_check", make_scope_check(requirements_llm))
+    graph.add_node(
+        "scope_check", make_scope_check(requirements_llm, model=requirements_model, prices=prices, budget_usd=budget)
+    )
     graph.add_node("prepare_workspace", make_prepare_workspace(workspaces, repo_map))
-    graph.add_node("planning_agent", make_planning_agent(planner, repo_map, workspaces, slots))
+    graph.add_node("planning_agent", make_planning_agent(planner, repo_map, workspaces, slots, budget_usd=budget))
     graph.add_node("await_plan", await_plan)
-    graph.add_node("coding_agent", make_coding_agent(coder, repo_map, workspaces, slots))
+    graph.add_node("coding_agent", make_coding_agent(coder, repo_map, workspaces, slots, budget_usd=budget))
     graph.add_node(
         "review_agent",
         make_review_agent(
             review_llm,
             review_rules=settings.review_rules(),
             max_diff_chars=settings.review_max_diff_chars,
+            model=settings.stage_model("review"),
+            prices=prices,
+            budget_usd=budget,
         ),
     )
     graph.add_node("phase_gate", phase_gate)

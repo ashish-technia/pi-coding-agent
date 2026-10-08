@@ -38,7 +38,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (81 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (85 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -179,6 +179,11 @@ Two status subtleties in `service.py`: a paused node has not returned yet, so th
 stale and the effective one is derived from the pending interrupt via `_STATUS_FOR_PENDING`; and a node that
 raised leaves `state.next` set with a task error, which is surfaced as the synthetic status `stuck_error`
 (recoverable with `POST /api/runs/{key}/retry`).
+
+`usage.py` is the cost ledger (R-14). Every node that calls a model checks `usage.check_budget` first and
+returns `"usage": usage.appended(state, entry)`; a new model-calling node must do both. Pi sessions report
+their own cost in `AgentResult.usage`; the direct LangChain calls go through `usage.tracked`, which prices
+them from `MODEL_PRICES`. `BudgetExceeded` is an ordinary node error, so the run becomes `stuck_error`.
 
 `graph/progress.py` is an in-process, non-persistent ring buffer of live sub-checkpoint activity (current
 node, Pi tool calls). It is lost on restart and is not shared between workers — only checkpoints and the

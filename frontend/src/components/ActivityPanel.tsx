@@ -25,6 +25,12 @@ function describe(e: ActivityEvent): { icon: string; text: string; cls?: string 
         : { icon: '✓', text: `${e.tool} → ${e.size ?? 0} chars`, cls: 'muted' }
     case 'blocked':
       return { icon: '⛔', text: `${e.tool} blocked: ${e.text ?? ''}`, cls: 'warn' }
+    case 'usage':
+      return {
+        icon: '$',
+        text: `session used ${e.input ?? 0} input / ${e.output ?? 0} output tokens · $${(e.cost ?? 0).toFixed(3)}`,
+        cls: 'muted',
+      }
     case 'validation':
       return { icon: '⚠', text: `plan validation round ${e.round}: ${(e.problems ?? []).join(' | ')}`, cls: 'warn' }
     case 'done':

@@ -43,6 +43,27 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 - `REVIEW_MAX_DIFF_CHARS` — largest diff, in characters, sent to the review model (default 200000; 0 = no limit). Above it whole files are left out, lockfiles and generated files first, and the phase and final gates say which.
 - `REVIEW_RULES_PATH` — Markdown with `Must` and `Should` sections; the reviewer rejects on any `Must` violation.
 
+## Cost
+
+Every model call that returns is recorded per run and stage: tokens in, tokens out, cached tokens
+and cost. The run page shows the total and a per-stage table, and `GET /api/runs/{key}` returns it
+as `usage`.
+
+- `RUN_BUDGET_USD` — most a single run may spend, in USD (default 0 = no budget). It is checked
+  before every model call, and each Pi session is told what the run has left and stops itself
+  when it passes it. A run that reaches the budget stops as `stuck_error` and keeps its
+  worktrees; raise the value, restart the service and retry the run.
+- `MODEL_PRICES` — JSON object of USD per million tokens for the stages that call a model
+  directly (requirements, scope check, review):
+  `{"gpt-4.1": {"input": 2.0, "output": 8.0, "cached_input": 0.5}}`. Planning and coding run
+  through Pi, which prices its own sessions from its model catalogue. A model with no entry is
+  still recorded with its tokens; its cost is unknown, the stage shows "not priced" and the total
+  is a lower bound. A malformed value stops the service at startup.
+
+Two limits to know: a Pi session that fails returns nothing, so its tokens are in the activity
+log (a `usage` event) and the service log but not in the run's total; and the budget counts only
+priced calls.
+
 ## Jira
 
 `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (the agent's service account in flow 2), `JIRA_TRANSITION_DONE_ID`, `JIRA_COMMENTS_ENABLED`, `ALLOWED_PROJECTS`.

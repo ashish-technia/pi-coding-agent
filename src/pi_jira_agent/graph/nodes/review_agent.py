@@ -4,6 +4,8 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from ... import usage
+from ...config import StageModelConfig
 from ...models import AgentResult, JiraIssue, RequirementsSpec
 from .. import progress
 from ..state import AsyncNode, GraphState
@@ -175,12 +177,22 @@ def _build_review_prompt(
     return "\n".join(parts)
 
 
-def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -> ReviewNode:
+def make_review_agent(
+    llm,
+    *,
+    review_rules: str = "",
+    max_diff_chars: int = 0,
+    model: StageModelConfig | None = None,
+    prices: usage.Prices | None = None,
+    budget_usd: float = 0.0,
+) -> ReviewNode:
     structured_llm = llm.with_structured_output(ReviewVerdict)
+    cfg = model or StageModelConfig(provider="", model="", api_key="")
 
     async def review_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         progress.mark(issue.key, "review_agent")
+        usage.check_budget(state, budget_usd)
         # Only this phase's changes: earlier phases passed their own review, and judging
         # them again against this phase's plan steps produced spurious rejections.
         phase_diff = state.get("phase_diff")
@@ -205,7 +217,8 @@ def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -
                 + (f", {len(omitted_files)} file(s) left out as too large" if omitted_files else ""),
             },
         )
-        verdict: ReviewVerdict = await structured_llm.ainvoke(
+        verdict, used = await usage.tracked(
+            structured_llm,
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(
@@ -221,7 +234,10 @@ def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -
                         earlier_phases=(state.get("phase_index", 0) if state.get("execution_mode") == "phased" else 0),
                     )
                 ),
-            ]
+            ],
+            stage="review",
+            cfg=cfg,
+            prices=prices or {},
         )
         logger.info(
             "Review verdict for %s: approved=%s must_violations=%d",
@@ -248,6 +264,7 @@ def make_review_agent(llm, *, review_rules: str = "", max_diff_chars: int = 0) -
             "review_approved": verdict.approved and not verdict.must_violations,
             "review_feedback": feedback,
             "review_omitted_files": omitted_files,
+            "usage": usage.appended(state, used),
             "current_node": "review_agent",
         }
 

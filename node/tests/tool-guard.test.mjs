@@ -132,9 +132,10 @@ test("plan mode: a read outside the repository is blocked, and the run still fin
       finished.map((e) => e.error),
       [true, false],
     );
-    assert.equal(events.at(-1).blocked, 1);
+    const done = events.find((e) => e.ev === "done");
+    assert.equal(done.blocked, 1);
     // The blocked read did not show the file, so it does not count as read.
-    assert.equal(events.at(-1).files_read, 1);
+    assert.equal(done.files_read, 1);
   } finally {
     repo.cleanup();
     other.cleanup();

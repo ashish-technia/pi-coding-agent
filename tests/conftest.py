@@ -214,6 +214,8 @@ class FakeRunner:
         self.phases = True
         self.gate = None  # an asyncio.Event a test sets to hold every plan call until it is released
         self.execute_gate = None  # the same for execute calls, held after the files were edited
+        # What each session reports having used, as the real runner does.
+        self.usage = {"input": 12000, "output": 900, "cache_read": 4000, "cache_write": 0, "cost": 0.05}
 
     async def __call__(
         self,
@@ -228,6 +230,7 @@ class FakeRunner:
         reviewer_notes="",
         review_feedback="",
         repo_roots=None,
+        max_cost_usd=None,
     ):
         self.calls.append(
             {
@@ -239,6 +242,7 @@ class FakeRunner:
                 "review_feedback": review_feedback,
                 "repo_cwd": repo_cwd,
                 "repo_roots": [r["name"] for r in (repo_roots or [])],
+                "max_cost_usd": max_cost_usd,
             }
         )
         names = [r["name"] for r in (repo_roots or [])]
@@ -260,6 +264,7 @@ class FakeRunner:
                 pr_description="did it",
                 files_changed=[label(s) for s in plan.plan_steps] if plan else ["a.py"],
                 plan_steps=plan.plan_steps if plan else [],
+                usage=dict(self.usage),
             )
         if self.gate is not None:
             await self.gate.wait()
@@ -287,6 +292,7 @@ class FakeRunner:
             ]
             if self.phases
             else [],
+            usage=dict(self.usage),
         )
 
 

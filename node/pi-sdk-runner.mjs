@@ -709,6 +709,8 @@ export async function runAgent(parsed, deps = {}) {
   const reviewerNotes = typeof parsed.reviewerNotes === "string" ? parsed.reviewerNotes.trim() : "";
   const reviewFeedback = typeof parsed.reviewFeedback === "string" ? parsed.reviewFeedback.trim() : "";
   const thinkingLevel = VALID_THINKING_LEVELS.has(parsed.thinkingLevel) ? parsed.thinkingLevel : "medium";
+  // What the run may still spend, in USD (R-14). Absent means the run has no budget.
+  const maxCostUsd = typeof parsed.maxCostUsd === "number" && parsed.maxCostUsd >= 0 ? parsed.maxCostUsd : null;
   const cwd = path.resolve(repoCwdInput);
   const agentDir = path.resolve(agentDirInput);
   // `cwd` is the primary repo (bash has only one working directory); `roots` is every repo
@@ -794,6 +796,21 @@ export async function runAgent(parsed, deps = {}) {
 
   const { session } = await createAgentSession(sessionOptions);
 
+  let overBudget = false;
+  /** Tokens and cost of this session so far, as Pi counts them. */
+  const usageNow = () => {
+    const stats = session.getSessionStats();
+    return {
+      input: stats.tokens.input,
+      output: stats.tokens.output,
+      cache_read: stats.tokens.cacheRead,
+      cache_write: stats.tokens.cacheWrite,
+      // Pi prices the session from its catalogue. `deps.costOf` is for tests only: the
+      // scripted provider reports tokens but always a zero cost.
+      cost: deps.costOf ? deps.costOf(stats) : stats.cost,
+    };
+  };
+
   const summariseArgs = (toolName, args) => {
     if (!args || typeof args !== "object") return "";
     const show = (p) => displayPath(roots, multi, p);
@@ -826,6 +843,11 @@ export async function runAgent(parsed, deps = {}) {
       emit({ ev: "model_turn", turn });
     }
     if (event?.type === "message_end" && event.message?.role === "assistant") {
+      if (maxCostUsd !== null && !overBudget && usageNow().cost > maxCostUsd) {
+        // Stop here rather than let a long session run on after the money is gone.
+        overBudget = true;
+        void session.abort();
+      }
       const text = textFromContentBlocks(
         Array.isArray(event.message.content)
           ? event.message.content.filter((b) => b && b.type === "text")
@@ -862,6 +884,19 @@ export async function runAgent(parsed, deps = {}) {
   // Paths the model named that fall outside every attached repo, refreshed on each parse.
   let rejected = [];
 
+  const promptWithinBudget = async (text) => {
+    await session.prompt(text);
+    if (!overBudget) return;
+    const used = usageNow();
+    // A failed session returns nothing to Python, so this event is the only record of it.
+    emit({ ev: "usage", ...used });
+    session.dispose();
+    throw new Error(
+      `The run reached its budget: this session spent $${used.cost.toFixed(2)} of the ` +
+        `$${maxCostUsd.toFixed(2)} the run had left. Raise RUN_BUDGET_USD, restart and retry.`
+    );
+  };
+
   const collectResult = () => {
     // Do not rely on session.subscribe for text: AgentSession forwards events asynchronously,
     // so prompt() can return before user handlers run. Agent state is updated synchronously.
@@ -891,7 +926,7 @@ export async function runAgent(parsed, deps = {}) {
     firstPrompt = buildPlanPrompt(issue, systemPrompt, modelId, requirements, roots, multi);
   }
 
-  await session.prompt(firstPrompt);
+  await promptWithinBudget(firstPrompt);
   let result = collectResult();
 
   let corrections = 0;
@@ -912,7 +947,7 @@ export async function runAgent(parsed, deps = {}) {
         `[pi-runner] plan validation round ${corrections}: ${problems.length} problem(s)\n  - ${problems.join("\n  - ")}\n`
       );
       emit({ ev: "validation", round: corrections, problems: problems.slice(0, 10) });
-      await session.prompt(
+      await promptWithinBudget(
         [
           "Your plan failed validation against the repository. Fix every item below, using the",
           "read/grep/find/ls tools as needed, then return the complete corrected JSON object again.",
@@ -949,6 +984,8 @@ export async function runAgent(parsed, deps = {}) {
     blocked: blockedCalls.length,
   });
 
+  result.usage = usageNow();
+  emit({ ev: "usage", ...result.usage });
   session.dispose();
   return result;
 }

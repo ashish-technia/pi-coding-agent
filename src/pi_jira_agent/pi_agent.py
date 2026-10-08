@@ -210,6 +210,8 @@ class PiAgentExecutor:
             "reviewerNotes": ctx.get("reviewer_notes") or "",
             # Execute mode only: feedback from the last rejected review.
             "reviewFeedback": ctx.get("review_feedback") or "",
+            # What the run may still spend (USD); the session stops itself when it passes it.
+            "maxCostUsd": ctx.get("max_cost_usd"),
         }
 
         env = pi_environment(self.api_key, self.env_passthrough)
@@ -222,7 +224,7 @@ class PiAgentExecutor:
             ev = event.get("ev")
             if ev == "tool":
                 logger.info("[pi %s] %s %s", issue.key, event.get("tool"), event.get("args", ""))
-            elif ev in {"start", "done", "validation", "blocked"}:
+            elif ev in {"start", "done", "validation", "blocked", "usage"}:
                 logger.info("[pi %s] %s %s", issue.key, ev, {k: v for k, v in event.items() if k not in {"ev", "t"}})
 
         try:
@@ -280,6 +282,7 @@ class PiAgentExecutor:
         reviewer_notes: str = "",
         review_feedback: str = "",
         repo_roots: list[dict] | None = None,
+        max_cost_usd: float | None = None,
     ) -> AgentResult:
         self._execution_context = {
             "repo_cwd": repo_cwd,
@@ -290,6 +293,7 @@ class PiAgentExecutor:
             "requirements": requirements,
             "reviewer_notes": reviewer_notes,
             "review_feedback": review_feedback,
+            "max_cost_usd": max_cost_usd,
         }
         try:
             return await self.run(issue)

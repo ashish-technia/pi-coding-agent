@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from . import usage
 from .channels.jira_comments import JiraCommentChannel, approver_account_ids
 from .config import settings
 from .graph import progress
@@ -455,6 +456,7 @@ class AutomationService:
             "retry_count": values.get("retry_count", 0),
             "auto_resumes": values.get("auto_resumes") or 0,
             "decision_log": values.get("decision_log") or [],
+            "usage": usage.summarise(values.get("usage") or [], settings.run_budget_usd),
             "code_result": _dump(values.get("code_result")),
             "repos": values.get("repos") or [],
             "base_shas": values.get("base_shas") or {},
