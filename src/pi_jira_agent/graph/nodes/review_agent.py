@@ -4,7 +4,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from ... import usage
+from ... import prompts, usage
 from ...config import StageModelConfig
 from ...models import AgentResult, JiraIssue, RequirementsSpec
 from .. import progress
@@ -14,23 +14,6 @@ from .coding_agent import phase_plan
 logger = logging.getLogger(__name__)
 
 ReviewNode = AsyncNode
-
-_SYSTEM_PROMPT = (
-    "You are a senior engineer performing code review. You are given the approved requirement, "
-    "the approved implementation plan for the current phase, the team's review rules, and the "
-    "git diff an automated coding agent produced. Decide whether the diff correctly and safely "
-    "implements the plan and satisfies the acceptance criteria that this phase covers.\n"
-    "- Every 'Must' rule violated is a rejection. 'Should' rules are observations unless several "
-    "are broken.\n"
-    "- Flag bugs, missing plan steps, unrequested changes, security issues and risky edits.\n"
-    "- Be concise and specific: reference file names and the code in question.\n"
-    "- If the diff is empty, reject and say that no changes were made.\n"
-    "- If this is a retry, verify the previous feedback was actually addressed.\n"
-    "- A change may span several repositories, shown as one diff per repository. Judge them "
-    "together: a call added in one repo must match the signature defined in another, and a "
-    "symbol that looks undefined may simply live in a sibling repo's diff."
-)
-
 
 # Dropped first when a diff is over the limit: nobody reviews these line by line.
 _LOW_VALUE_NAMES = {
@@ -220,7 +203,7 @@ def make_review_agent(
         verdict, used = await usage.tracked(
             structured_llm,
             [
-                SystemMessage(content=_SYSTEM_PROMPT),
+                SystemMessage(content=prompts.get("phase_review").text),
                 HumanMessage(
                     content=_build_review_prompt(
                         issue,

@@ -97,6 +97,11 @@ RUN mkdir -p /app/data /workspace/repo \
 
 USER app
 
+# The commit the image was built from, recorded in every run's manifest (R-39):
+#   docker build --build-arg GIT_SHA=$(git rev-parse HEAD) .
+ARG GIT_SHA=unknown
+ENV AGENT_GIT_SHA=$GIT_SHA
+
 ENV REPO_LOCAL_PATH=/workspace/repo \
     REPOS_CONFIG_PATH=/app/repos.json \
     REPOS_ROOT=/workspace \

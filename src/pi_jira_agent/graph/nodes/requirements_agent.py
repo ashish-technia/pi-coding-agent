@@ -3,40 +3,13 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ... import usage
+from ... import prompts, usage
 from ...config import StageModelConfig
 from ...models import RequirementsSpec, ScopeCheck
 from .. import progress
 from ..state import GraphState
 
 logger = logging.getLogger(__name__)
-
-_FRAMING_SYSTEM = (
-    "You are a senior business analyst working with an engineering team. You receive a Jira "
-    "issue (summary, description and the full comment thread) and must frame it as a precise, "
-    "testable requirement that an engineer can plan against.\n"
-    "Rules:\n"
-    "- Use only what the issue and its comments actually say; do not invent features.\n"
-    "- Comments often refine or override the description: later comments win, and the reporter's "
-    "or assignee's statements outrank speculation by others.\n"
-    "- Acceptance criteria must be observable and testable, one behaviour each.\n"
-    "- Put anything the issue mentions but does not ask to change under out_of_scope.\n"
-    "- Put anything only the reporter can settle under open_questions; do not guess.\n"
-    "- In sources, say where each goal/criterion came from (e.g. 'description', "
-    "'comment by <name>', 'inferred from ...')."
-)
-
-_SCOPE_SYSTEM = (
-    "You are a scope reviewer. You compare a requirement that an analyst framed from a Jira "
-    "issue with the version a human edited afterwards. For every material addition, removal or "
-    "change the human made, decide whether it stays inside the scope of the original Jira issue "
-    "(description plus comments) or extends it.\n"
-    "- 'added' items that the issue never asked for are out_of_scope.\n"
-    "- Clarifications, rewording, and tightening of existing goals are in_scope.\n"
-    "- Removing an original goal is 'removed' and in_scope (narrowing is allowed) but say so.\n"
-    "- If you cannot tell, use 'unclear' and explain.\n"
-    "Return an empty findings list when the edit is purely cosmetic."
-)
 
 
 def make_requirements_agent(
@@ -76,7 +49,7 @@ def make_requirements_agent(
         )
         spec, used = await usage.tracked(
             structured,
-            [SystemMessage(content=_FRAMING_SYSTEM), HumanMessage(content="\n".join(parts))],
+            [SystemMessage(content=prompts.get("requirements_framing").text), HumanMessage(content="\n".join(parts))],
             stage="requirements",
             cfg=cfg,
             prices=prices or {},
@@ -139,7 +112,7 @@ def make_scope_check(
         )
         result, used = await usage.tracked(
             structured,
-            [SystemMessage(content=_SCOPE_SYSTEM), HumanMessage(content=prompt)],
+            [SystemMessage(content=prompts.get("scope_check").text), HumanMessage(content=prompt)],
             stage="scope_check",
             cfg=cfg,
             prices=prices or {},

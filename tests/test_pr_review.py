@@ -220,3 +220,12 @@ async def test_fix_command_from_a_jira_comment():
     assert parse_comment_command("plan_approval", "/fix 1") is None
     parsed = parse_decision("final_review", {"action": "fix", "findings": [2]})
     assert parsed.model_dump()["findings"] == [2]
+
+
+async def test_run_keeps_the_manifest_it_started_with(service, fakes):
+    key = _key()
+    status = await _to_final(service, key, pr_review=False)
+    taken = status["manifest"]
+    assert taken["stages"]["pr_review"]["enabled"] is False
+    assert taken["pi_sdk_version"] == "1.1.0"
+    assert taken["prompts"]["requirements_framing"]["version"] == 1

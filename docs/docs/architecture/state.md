@@ -77,6 +77,21 @@ The PR review has six fields. `pr_review_enabled` is chosen when the run starts 
 review; while it is set, `coding_agent` runs a fix pass and routes to `pr_review`. `fix_rounds`
 counts those passes.
 
+`manifest` (bookkeeping) records what produced the run. `manifest.build` takes it once, when the run
+starts, and nothing changes it afterwards:
+
+| Key | What it holds |
+|---|---|
+| `agent_version`, `agent_git_sha` | this service: package version and the commit it runs from (`AGENT_GIT_SHA` in an image, `git rev-parse HEAD` in a checkout) |
+| `pi_sdk_version` | the installed Pi SDK, which also fixes the model catalogue |
+| `runner_sha` | one hash over `node/pi-sdk-runner.mjs` and `node/review-mode.mjs`; the Pi prompts are built in those files |
+| `stages` | provider and model per stage, the Pi thinking level where there is one, and whether PR review is on |
+| `prompts` | version and hash of every file in `src/pi_jira_agent/prompts/`, and the hash of `PI_SYSTEM_PROMPT` |
+| `rules` | hashes of the review rules and the PR review rules |
+| `pack` | `builtin` until packs exist (R-30) |
+
+Two runs with the same manifest came from the same system. It holds no key, token or path.
+
 `usage` (bookkeeping) is the run's cost ledger: one entry per model call that returned, with `stage`,
 `provider`, `model`, `input`, `output`, `cache_read`, `cache_write`, `cost_usd` and `at`. There is no
 reducer on it, so a node returns the whole list with its entry added (`usage.appended`). `cost_usd` is

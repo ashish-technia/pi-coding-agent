@@ -249,6 +249,19 @@ export interface RunUsage {
   budget_usd: number | null
 }
 
+/** What produced a run, recorded when it started. */
+export interface RunManifest {
+  agent_version: string
+  agent_git_sha: string
+  pi_sdk_version: string
+  runner_sha: string
+  stages: Record<string, { provider: string; model: string; thinking_level?: string; enabled?: boolean }>
+  prompts: Record<string, { version?: number; sha: string }>
+  rules: { review: string; pr_review: string }
+  pack: string
+  created_at: string
+}
+
 export interface RunStatus {
   issue: string
   issue_details: IssueDetails | null
@@ -273,6 +286,7 @@ export interface RunStatus {
   max_iterations: number | null
   retry_count: number
   usage?: RunUsage
+  manifest?: RunManifest
   code_result: AgentResult | null
   /** Repo names this run works in, primary first. */
   repos: string[]

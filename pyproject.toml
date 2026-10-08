@@ -43,6 +43,9 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+pi_jira_agent = ["prompts/*.md"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"

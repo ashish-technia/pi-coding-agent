@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from . import usage
+from . import manifest, usage
 from .channels.jira_comments import JiraCommentChannel, approver_account_ids
 from .config import settings
 from .graph import progress
@@ -265,13 +265,15 @@ class AutomationService:
         # Leftovers of an earlier run of this issue (a crash before cleanup) must not be reused.
         await self._release_workspace(issue_key, force=True)
         logger.info("Starting %s in repo(s) %s", issue_key, ", ".join(r.name for r in selected))
+        with_pr_review = settings.pr_review_default if pr_review is None else pr_review
         state = initial_state(
             issue_key,
             channel=channel,
             repos=[r.name for r in selected],
             max_iterations=settings.review_max_iterations,
             issue=inline_issue,
-            pr_review=settings.pr_review_default if pr_review is None else pr_review,
+            pr_review=with_pr_review,
+            manifest=manifest.build(settings, pr_review=with_pr_review),
         )
         progress.reset_activity(issue_key)
         await self.registry.upsert(
@@ -478,6 +480,7 @@ class AutomationService:
             "auto_resumes": values.get("auto_resumes") or 0,
             "decision_log": values.get("decision_log") or [],
             "usage": usage.summarise(values.get("usage") or [], settings.run_budget_usd),
+            "manifest": values.get("manifest") or {},
             "code_result": _dump(values.get("code_result")),
             "repos": values.get("repos") or [],
             "base_shas": values.get("base_shas") or {},

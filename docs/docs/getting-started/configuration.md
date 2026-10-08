@@ -43,6 +43,23 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 - `REVIEW_MAX_DIFF_CHARS` — largest diff, in characters, sent to the review model (default 200000; 0 = no limit). Above it whole files are left out, lockfiles and generated files first, and the phase and final gates say which.
 - `REVIEW_RULES_PATH` — Markdown with `Must` and `Should` sections; the reviewer rejects on any `Must` violation.
 
+## Prompts and the run manifest
+
+The system prompts of the stages that call a model directly are files in
+`src/pi_jira_agent/prompts/` (`requirements_framing.md`, `scope_check.md`, `phase_review.md`). Each
+starts with `<!-- version: N -->`; raise N when you change the text. The planning, coding and PR
+review prompts are built in `node/pi-sdk-runner.mjs` and `node/review-mode.mjs`.
+
+Every run records a manifest when it starts: the versions of the service, the Pi SDK and the runner,
+the model of each stage, and the version and hash of every prompt and rules file. The run page shows
+it, and `GET /api/runs/{key}` returns it as `manifest`. An image needs the build argument `GIT_SHA`
+for the manifest to name its commit (see [Docker](../operations/docker.md)).
+
+Model ids are recorded as configured. For planning, coding and PR review, Pi resolves an id from the
+catalogue bundled with the pinned SDK version, and that catalogue lists most OpenAI models without
+a dated snapshot id, so the SDK version is what pins their meaning. For requirements and review, use
+a dated id in `REVIEW_MODEL` / `REQUIREMENTS_MODEL` if the provider offers one.
+
 ## PR review
 
 The review of the whole change before the final gate; see [PR Review Agent](../agents/pr-review-agent.md).

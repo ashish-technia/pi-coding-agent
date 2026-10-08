@@ -44,10 +44,11 @@ _COLUMNS = (
     "error",
     "commits",
     "result",
+    "manifest",
     "created_at",
     "updated_at",
 )
-_JSON_COLUMNS = {"repos", "commits", "result"}
+_JSON_COLUMNS = {"repos", "commits", "result", "manifest"}
 _SELECT = f"SELECT {', '.join(_COLUMNS)} FROM reviews"
 
 _CREATE_SQLITE = """
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     error TEXT NOT NULL DEFAULT '',
     commits TEXT NOT NULL DEFAULT '{}',
     result TEXT NOT NULL DEFAULT 'null',
+    manifest TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -281,7 +283,13 @@ class ReviewService:
         await self.store.close()
 
     async def start_review(
-        self, *, repos: list[RepoConfig], branch: str, issue_key: str = "", started_by: str = "ui"
+        self,
+        *,
+        repos: list[RepoConfig],
+        branch: str,
+        issue_key: str = "",
+        started_by: str = "ui",
+        manifest: dict | None = None,
     ) -> dict:
         """Queue a review of ``branch`` in ``repos``. Refused before anything is checked out when
         the branch name is not one, or the branch is missing in any of the repositories."""
@@ -305,6 +313,7 @@ class ReviewService:
             issue_key=issue_key,
             status="queued",
             started_by=started_by,
+            manifest=manifest or {},
         )
         progress.reset_activity(review_id)
         self._tasks[review_id] = asyncio.create_task(self._run(review_id, repos, branch, issue_key))
