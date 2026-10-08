@@ -477,6 +477,7 @@ class AutomationService:
             "usage": usage.summarise(values.get("usage") or [], settings.run_budget_usd),
             "code_result": _dump(values.get("code_result")),
             "repos": values.get("repos") or [],
+            "base_shas": values.get("base_shas") or {},
             "diffs": values.get("diffs") or {},
             "phase_diffs": values.get("phase_diffs") or [],
             "review_approved": values.get("review_approved"),
