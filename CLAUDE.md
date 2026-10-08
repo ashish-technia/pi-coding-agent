@@ -143,7 +143,7 @@ A run never edits a configured clone. `prepare_workspace` (between `scope_check`
 `<RUNS_ROOT>/<issue key>/<repo>`, and records the commit in `GraphState["base_shas"]`. Worktree paths
 are derived, never stored. `AutomationService._release_workspace` removes them when a run ends in
 `done`, `failed` or `cancelled`; a `stuck_error` run keeps them, and a missing worktree raises instead
-of being recreated empty.
+of being recreated empty. A failed fetch is a warning, not an error: the run starts from the last fetched commit.
 
 The first selected repo (in `repos.json` order, not click order) is the *primary*: its worktree is the Pi
 session's `cwd`, because `bash` has only one working directory. Everything else is addressed by
