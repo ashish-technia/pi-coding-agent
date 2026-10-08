@@ -60,11 +60,11 @@ export default function RunPage() {
     }
   }
 
-  async function retry() {
+  async function retry(skipPrReview = false) {
     setBusy(true)
     setError(null)
     try {
-      setRun(await api.retry(issueKey))
+      setRun(await api.retry(issueKey, skipPrReview))
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     } finally {
@@ -123,9 +123,14 @@ export default function RunPage() {
           <pre className="small">Stuck on {run.stuck_on?.join(', ')}: {run.error}</pre>
           <p className="small muted">Fix the cause (API key, timeout, repository state) and retry from the checkpoint.</p>
           <div className="actions">
-            <button className="primary" disabled={busy} onClick={retry}>
+            <button className="primary" disabled={busy} onClick={() => retry()}>
               ↻ Retry
             </button>
+            {run.stuck_on?.includes('pr_review') && (
+              <button disabled={busy} onClick={() => retry(true)} title="The final gate will say the change was not reviewed">
+                Continue without the PR review
+              </button>
+            )}
           </div>
         </div>
       )}

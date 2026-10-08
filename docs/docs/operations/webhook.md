@@ -68,7 +68,7 @@ The agent includes the valid commands in every comment it posts. Full list:
 | requirements | `/approve`, `/revise <notes>`, `/cancel` |
 | plan | `/approve`, `/approve phased`, `/revise <notes>`, `/reject` |
 | between phases | `/continue`, `/stop` |
-| final review | `/pr <pull request title>`, `/finish` |
+| final review | `/pr <pull request title>`, `/finish`, and while the PR review has findings to act on: `/fix` (every `must` finding) or `/fix 1 3 <optional notes>` |
 
 Anything else is ignored and, if the agent cannot apply a command, it replies with the reason.
 

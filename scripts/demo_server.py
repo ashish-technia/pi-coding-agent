@@ -69,6 +69,22 @@ def main() -> None:
     # Realistic demo behaviour: first review of each phase is rejected, then approved.
     fakes["llm"].review_script = [False, True, False, True, True]
     fakes["llm"].scope_flags = True
+    # The PR review finds two things first; after a fix round only the lesser one is left.
+    lesser = {"severity": "should", "category": "tests", "claim": "No test covers giving up after the last attempt."}
+    fakes["runner"].review_script = [
+        [
+            {
+                "severity": "must",
+                "category": "bug",
+                "claim": "The retry loop never stops on a 503, so a dead server hangs the caller.",
+                "suggestion": "Give up after 3 attempts and raise the last error.",
+                "file": "src/client.py",
+                "line": 2,
+            },
+            lesser,
+        ],
+        [lesser],
+    ]
 
     from pi_jira_agent import main as app_main
 

@@ -1,7 +1,7 @@
 from collections.abc import Coroutine
 from typing import Any, Literal, Protocol, TypedDict, cast
 
-from ..models import AgentResult, JiraIssue, RequirementsSpec, ScopeCheck
+from ..models import AgentResult, JiraIssue, RequirementsSpec, ReviewResult, ScopeCheck
 
 Status = Literal[
     "fetching",
@@ -12,6 +12,7 @@ Status = Literal[
     "coding",
     "reviewing",
     "pending_phase",
+    "pr_reviewing",
     "pending_final",
     "creating_pr",
     "done",
@@ -58,6 +59,14 @@ class GraphState(TypedDict, total=False):
     iteration: int  # coding→review cycles within the current phase
     max_iterations: int
 
+    # --- PR review: the whole change, before the final gate ---------------
+    pr_review_enabled: bool  # chosen when the run starts
+    pr_review: ReviewResult | None  # the latest review; None before it ran or when it was skipped
+    pr_review_skipped: bool  # the review failed and someone retried the run without it
+    pr_review_skip: bool  # set by that retry; the node consumes it
+    fix_request: dict | None  # findings + notes the human sent back; set while a fix pass runs
+    fix_rounds: int  # fix passes so far
+
     # --- Delivery --------------------------------------------------------
     pr_title: str
     pr_urls: dict[str, str]  # repo name -> pull request URL, one per repo that had changes
@@ -79,6 +88,7 @@ def initial_state(
     repos: list[str],
     max_iterations: int,
     issue: JiraIssue | None = None,
+    pr_review: bool = False,
 ) -> GraphState:
     """The input a new run starts from: a value for **every** field.
 
@@ -116,6 +126,12 @@ def initial_state(
             "review_omitted_files": [],
             "iteration": 0,
             "max_iterations": max_iterations,
+            "pr_review_enabled": pr_review,
+            "pr_review": None,
+            "pr_review_skipped": False,
+            "pr_review_skip": False,
+            "fix_request": None,
+            "fix_rounds": 0,
             "pr_title": "",
             "pr_urls": {},
             "status": "fetching",

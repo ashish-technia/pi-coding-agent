@@ -82,6 +82,7 @@ Key behaviours:
 | `review_agent` | Injects error message into `review_feedback`; next review attempt includes this context |
 | `coding_agent` | Increments `retry_count`; re-runs the node from checkpoint as-is |
 | `planning_agent` | Re-runs planning from checkpoint |
+| `pr_review` | Runs the whole-change review again. With `skip_pr_review` it is skipped instead and the final gate says so |
 | `pr_node` | Runs every repository again; each step is safe to repeat. A repository whose pull request already exists reuses it, so there is one per repository |
 | `announce_node` | Posts the Jira comment only if it is not on the issue yet, then applies the transition. Bitbucket is not touched again |
 | `prepare_workspace` | Fetches again and creates any worktree that is not there yet |

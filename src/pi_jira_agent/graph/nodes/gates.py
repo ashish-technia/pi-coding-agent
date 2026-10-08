@@ -11,23 +11,26 @@ import logging
 
 from langgraph.types import interrupt
 
-from ...models import RequirementsSpec
+from ...models import RequirementsSpec, ReviewResult
 from .. import progress
 from ..state import GraphState
+from .pr_review import render_findings
 
 logger = logging.getLogger(__name__)
 
 
-def _logged(state: GraphState, gate: str, decision: dict) -> dict:
+def _logged(state: GraphState, gate: str, decision: dict, **extra) -> dict:
     """The state update that appends this decision to the run's log: which gate, what, who, when.
 
     `decided_by` is added by the service ("ui", or "jira:<accountId>"), never by the caller.
+    `extra` is recorded with the entry (the final gate adds what the PR review had found).
     """
     entry = {
         "gate": gate,
         "action": decision.get("action"),
         "by": decision.get("decided_by") or "unknown",
         "at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        **extra,
     }
     return {"decision_log": [*(state.get("decision_log") or []), entry]}
 
@@ -145,7 +148,48 @@ def phase_gate(state: GraphState) -> dict:
     return {"phase_diffs": phase_diffs, "status": "pending_final", "current_node": "phase_gate", **log}
 
 
-def make_await_final(*, pr_enabled: bool):
+KNOWN_FINDINGS_HEADING = "## Known review findings"
+
+
+def known_findings_section(review: ReviewResult | None) -> str:
+    """What the PR description says about `must` findings the human accepted (empty if none)."""
+    left = [f for f in (review.findings if review else []) if f.severity == "must"]
+    if not left:
+        return ""
+    lines = [
+        KNOWN_FINDINGS_HEADING,
+        "",
+        "An automated review of the whole change reported these and they were accepted as they are:",
+        "",
+    ]
+    for f in left:
+        where = f"{f.repo}/{f.file}" if f.repo else f.file
+        location = f"`{where}:{f.line}` " if where and f.line else f"`{where}` " if where else ""
+        lines.append(f"- {location}{f.claim}")
+    return "\n".join(lines)
+
+
+def pr_review_block(state: GraphState, *, max_fix_rounds: int) -> dict:
+    """The PR review as the final gate shows it. Pure: read from state only."""
+    review: ReviewResult | None = state.get("pr_review")
+    enabled = bool(state.get("pr_review_enabled"))
+    rounds = state.get("fix_rounds") or 0
+    return {
+        "enabled": enabled,
+        "skipped": bool(state.get("pr_review_skipped")),
+        "summary": review.summary if review else "",
+        "findings": [f.model_dump() for f in review.findings] if review else [],
+        "resolved": list(review.resolved) if review else [],
+        "not_reviewed": list(review.not_reviewed) if review else [],
+        "dropped_findings": len(review.dropped_findings) if review else 0,
+        "fix_rounds": rounds,
+        "max_fix_rounds": max_fix_rounds,
+        # Offered only while there is a review to act on and rounds are left.
+        "fix_available": enabled and review is not None and rounds < max_fix_rounds,
+    }
+
+
+def make_await_final(*, pr_enabled: bool, max_fix_rounds: int = 0):
     def await_final(state: GraphState) -> dict:
         key = state["issue"].key
         progress.mark(key, "await_final")
@@ -153,6 +197,8 @@ def make_await_final(*, pr_enabled: bool):
         plan = state.get("plan_result")
         diffs = state.get("diffs") or {}
         suggestion = code_result or plan
+        review: ReviewResult | None = state.get("pr_review")
+        review_block = pr_review_block(state, max_fix_rounds=max_fix_rounds)
         decision = interrupt(
             {
                 "type": "final_review",
@@ -171,9 +217,45 @@ def make_await_final(*, pr_enabled: bool):
                     else state.get("phases_total", 1)
                 ),
                 "phases_total": state.get("phases_total", 1),
+                "pr_review": review_block,
             }
         )
-        log = _logged(state, "final_review", decision)
+        # What the reviewer showed and what the human did with it, kept for measuring the
+        # reviewer against human verdicts later (R-20).
+        shown = review.findings if review else []
+        chosen = set(decision.get("findings") or []) if decision.get("action") == "fix" else set()
+        log = _logged(
+            state,
+            "final_review",
+            decision,
+            **(
+                {
+                    "review": {
+                        "shown": [{"number": f.number, "severity": f.severity, "category": f.category} for f in shown],
+                        "fix": sorted(n for n in chosen if any(f.number == n for f in shown)),
+                        "left": [f.number for f in shown if f.number not in chosen],
+                    }
+                }
+                if review_block["enabled"]
+                else {}
+            ),
+        )
+        if decision.get("action") == "fix" and review_block["fix_available"] and review:
+            findings = [f for f in review.findings if f.number in chosen]
+            notes = (decision.get("notes") or "").strip()
+            return {
+                # `feedback` is the fix pass's work order. It is kept apart from
+                # `review_feedback`, which stays the phase reviewer's last word.
+                "fix_request": {
+                    "findings": [f.model_dump() for f in findings],
+                    "notes": notes,
+                    "feedback": render_findings(findings, notes),
+                },
+                "fix_rounds": review_block["fix_rounds"] + 1,
+                "status": "coding",
+                "current_node": "await_final",
+                **log,
+            }
         if decision.get("action") == "create_pr" and pr_enabled:
             updates: dict = {
                 "pr_title": decision.get("pr_title", "").strip(),
@@ -181,8 +263,11 @@ def make_await_final(*, pr_enabled: bool):
                 "current_node": "await_final",
                 **log,
             }
-            description = decision.get("pr_description")
-            if description and code_result:
+            description = decision.get("pr_description") or (code_result.pr_description if code_result else "")
+            known = known_findings_section(review)
+            if known and KNOWN_FINDINGS_HEADING not in description:
+                description = f"{description}\n\n{known}".strip()
+            if code_result and description != code_result.pr_description:
                 updates["code_result"] = code_result.model_copy(update={"pr_description": description})
             return updates
         return {"status": "done", "current_node": "await_final", **log}

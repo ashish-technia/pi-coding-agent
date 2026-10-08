@@ -61,6 +61,7 @@ Everything is in `.env` (see `.env.example`). The important groups:
 - **Per-stage models:** `REQUIREMENTS_*`, `PLANNING_*`, `CODING_*`, `REVIEW_*` (`_MODEL_PROVIDER`, `_MODEL`, `_API_KEY`). Planning and coding fall back to `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY`.
 - **Repositories:** `REPOS_CONFIG_PATH` points at `repos.json`, the list of clones a run may work in (copy `repos.example.json`); `REPO_LOCAL_PATH` is the single-clone fallback when that file is absent. Each run works in its own git worktree under `RUNS_ROOT` (default `data/runs`); the clones are only fetched. Plus `BITBUCKET_*`.
 - **Review rules:** `REVIEW_RULES_PATH` points at a Markdown file of must-check items (default `review-rules.md`).
+- **PR review:** `PR_REVIEW_DEFAULT` decides whether a run reviews the whole change before the final gate when nobody chose; `PR_REVIEW_*` set its model (falls back to `REVIEW_*`), rules and `PR_REVIEW_MAX_FIX_ROUNDS`.
 - **Cost:** `RUN_BUDGET_USD` caps what one run may spend on model calls (0 = no cap); `MODEL_PRICES` prices the requirements and review calls, while Pi prices planning and coding itself. The run page shows tokens and cost per stage.
 - **Side effects:** `PR_CREATION_ENABLED` gates commit/push/PR; `JIRA_COMMENTS_ENABLED` gates status comments.
 - **Persistence:** `DATABASE_URL` (Postgres) or the SQLite fallback; `REDIS_URL` for the queue.
@@ -90,11 +91,11 @@ list in `repos.json`; see [Repositories](docs/docs/getting-started/repositories.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/runs` | start a run (`{"issue_key": "WAAS-1"}`; optional `repos`, inline `summary`/`description`) |
+| `POST` | `/api/runs` | start a run (`{"issue_key": "WAAS-1"}`; optional `repos`, `pr_review`, inline `summary`/`description`) |
 | `GET` | `/api/runs` | recent runs |
 | `GET` | `/api/runs/{key}` | full status, including the pending decision |
 | `POST` | `/api/runs/{key}/decision` | `{"action": ...}` validated against the pending gate |
-| `POST` | `/api/runs/{key}/retry` | resume a run stuck on an error |
+| `POST` | `/api/runs/{key}/retry` | resume a run stuck on an error (`{"skip_pr_review": true}` continues without a failed PR review) |
 | `GET` | `/api/config` | effective configuration (no secrets) |
 | `GET` | `/api/auth/config` | open: how the UI signs in (`mode`, issuer, client id) |
 | `POST` | `/webhooks/jira/trigger` | flow 2: `{"issue_key"}` from a Jira Automation rule |
@@ -113,7 +114,7 @@ The Docusaurus site under `docs/` (`cd docs && npm start`) holds the full docume
 ## Development
 
 ```bash
-scripts/check.sh all                        # lint, types, 85 tests, runner tests, frontend and docs builds, as CI runs them
+scripts/check.sh all                        # lint, types, 95 tests, runner tests, frontend and docs builds, as CI runs them
 scripts/check.sh test-pg                    # the suite against Postgres (compose service on :5440)
 cd frontend && npm run dev                  # Vite dev server on :5173 proxying to :8000
 cd docs && npm start                        # documentation site

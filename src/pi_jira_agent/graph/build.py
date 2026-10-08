@@ -15,10 +15,12 @@ from .nodes.fetch_issue import make_fetch_issue
 from .nodes.gates import await_plan, await_requirements, make_await_final, phase_gate
 from .nodes.planning_agent import make_planning_agent
 from .nodes.pr_node import make_announce_node, make_pr_node
+from .nodes.pr_review import make_pr_review
 from .nodes.requirements_agent import make_requirements_agent, make_scope_check
 from .nodes.review_agent import make_review_agent
 from .nodes.workspace import make_prepare_workspace
 from .orchestrator import (
+    route_after_coding,
     route_after_final_gate,
     route_after_phase_gate,
     route_after_plan_gate,
@@ -57,7 +59,7 @@ def _make_failed_node(jira: JiraClient, *, comments_enabled: bool):
     return failed_node
 
 
-def make_pi_executor(stage: str) -> PiAgentExecutor:
+def make_pi_executor(stage: str, *, thinking_level: str | None = None) -> PiAgentExecutor:
     cfg = settings.stage_model(stage)  # type: ignore[arg-type]
     return PiAgentExecutor(
         model=cfg.model,
@@ -68,7 +70,7 @@ def make_pi_executor(stage: str) -> PiAgentExecutor:
         runner_script=settings.pi_runner_script,
         agent_dir=settings.pi_agent_dir,
         timeout_seconds=settings.pi_timeout_seconds,
-        thinking_level=settings.pi_thinking_level,
+        thinking_level=thinking_level or settings.pi_thinking_level,
         env_passthrough=settings.pi_env_passthrough_names(),
     )
 
@@ -129,6 +131,7 @@ def build_graph():
     requirements_model = settings.stage_model("requirements")
     planner = make_pi_executor("planning")
     coder = make_pi_executor("coding")
+    pr_reviewer = make_pi_executor("pr_review", thinking_level=settings.pr_review_thinking_level)
 
     graph = StateGraph(GraphState)
     graph.add_node("fetch_issue", make_fetch_issue(jira))
@@ -156,7 +159,14 @@ def build_graph():
         ),
     )
     graph.add_node("phase_gate", phase_gate)
-    graph.add_node("await_final", make_await_final(pr_enabled=settings.pr_enabled))
+    graph.add_node(
+        "pr_review",
+        make_pr_review(pr_reviewer, repo_map, workspaces, slots, rules=settings.pr_review_rules(), budget_usd=budget),
+    )
+    graph.add_node(
+        "await_final",
+        make_await_final(pr_enabled=settings.pr_enabled, max_fix_rounds=settings.pr_review_max_fix_rounds),
+    )
     graph.add_node("pr_node", make_pr_node(bitbucket_clients, workspaces, repo_map))
     graph.add_node(
         "announce_node",
@@ -197,7 +207,11 @@ def build_graph():
             "cancelled_node": "cancelled_node",
         },
     )
-    graph.add_edge("coding_agent", "review_agent")
+    graph.add_conditional_edges(
+        "coding_agent",
+        route_after_coding,
+        {"review_agent": "review_agent", "pr_review": "pr_review"},
+    )
     graph.add_conditional_edges(
         "review_agent",
         route_after_review,
@@ -206,12 +220,13 @@ def build_graph():
     graph.add_conditional_edges(
         "phase_gate",
         route_after_phase_gate,
-        {"coding_agent": "coding_agent", "await_final": "await_final"},
+        {"coding_agent": "coding_agent", "pr_review": "pr_review", "await_final": "await_final"},
     )
+    graph.add_edge("pr_review", "await_final")
     graph.add_conditional_edges(
         "await_final",
         route_after_final_gate,
-        {"pr_node": "pr_node", "__end__": END},
+        {"pr_node": "pr_node", "coding_agent": "coding_agent", "__end__": END},
     )
     graph.add_edge("pr_node", "announce_node")
     graph.add_edge("announce_node", END)
@@ -234,6 +249,8 @@ def make_serde():
             ("pi_jira_agent.models", "RequirementsSpec"),
             ("pi_jira_agent.models", "ScopeCheck"),
             ("pi_jira_agent.models", "ScopeFinding"),
+            ("pi_jira_agent.models", "ReviewResult"),
+            ("pi_jira_agent.models", "ReviewFinding"),
         ],
     )
 

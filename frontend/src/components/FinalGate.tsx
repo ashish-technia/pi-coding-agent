@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Decision, Pending } from '../api'
 import DiffViewer from './DiffViewer'
 import PartialReviewNote from './PartialReviewNote'
+import PrReviewPanel from './PrReviewPanel'
 
 type FinalPending = Extract<Pending, { type: 'final_review' }>
 
@@ -30,6 +31,15 @@ export default function FinalGate({ pending, busy, onDecide }: { pending: FinalP
         ))}
       </p>
       <PartialReviewNote files={pending.review_omitted_files} />
+      {pending.pr_review && (
+        <PrReviewPanel
+          // A new review (after a fix round) starts from its own findings.
+          key={`${pending.pr_review.fix_rounds}-${pending.pr_review.findings.length}`}
+          review={pending.pr_review}
+          busy={busy}
+          onFix={(findings, notes) => onDecide({ action: 'fix', findings, notes })}
+        />
+      )}
       <DiffViewer diffs={pending.diffs} />
 
       {showPr && (

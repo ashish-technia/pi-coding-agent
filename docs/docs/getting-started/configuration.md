@@ -43,6 +43,16 @@ Chat providers: `openai`, `anthropic`, `google` (needs `langchain-google-genai`)
 - `REVIEW_MAX_DIFF_CHARS` — largest diff, in characters, sent to the review model (default 200000; 0 = no limit). Above it whole files are left out, lockfiles and generated files first, and the phase and final gates say which.
 - `REVIEW_RULES_PATH` — Markdown with `Must` and `Should` sections; the reviewer rejects on any `Must` violation.
 
+## PR review
+
+The review of the whole change before the final gate; see [PR Review Agent](../agents/pr-review-agent.md).
+
+- `PR_REVIEW_DEFAULT` — on or off when nobody chose: the start screen's initial setting, and every run started from Jira (default `true`).
+- `PR_REVIEW_MODEL_PROVIDER`, `PR_REVIEW_MODEL`, `PR_REVIEW_API_KEY` — the session's model. Empty falls back to `REVIEW_*`, never to the coder's model. It runs through Pi, so the id must be in Pi's catalogue.
+- `PR_REVIEW_THINKING_LEVEL` — Pi reasoning effort for the session (empty = `PI_THINKING_LEVEL`).
+- `PR_REVIEW_RULES_PATH` — Markdown rules the review applies (empty = `REVIEW_RULES_PATH`).
+- `PR_REVIEW_MAX_FIX_ROUNDS` — how often the final gate may send findings back to coding (default 2; 0 removes the action).
+
 ## Cost
 
 Every model call that returns is recorded per run and stage: tokens in, tokens out, cached tokens

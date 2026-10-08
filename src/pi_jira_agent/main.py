@@ -118,6 +118,13 @@ class StartRunRequest(BaseModel):
     description: str | None = None
     project_key: str | None = None
     reporter: str | None = None
+    # Review the whole change before the final gate. Omitted uses PR_REVIEW_DEFAULT.
+    pr_review: bool | None = None
+
+
+class RetryRequest(BaseModel):
+    # Continue a run that is stuck on the PR review without it.
+    skip_pr_review: bool = False
 
 
 class DecisionRequest(BaseModel):
@@ -224,7 +231,7 @@ async def start_run(req: StartRunRequest) -> dict:
     project = inline.project_key if inline else key.split("-")[0]
     if not _is_allowed_project(project):
         raise HTTPException(status_code=403, detail=f"Project {project} is not in ALLOWED_PROJECTS")
-    return await automation.start_run(key, channel="ui", inline_issue=inline, repos=req.repos)
+    return await automation.start_run(key, channel="ui", inline_issue=inline, repos=req.repos, pr_review=req.pr_review)
 
 
 @app.get("/api/runs/{issue_key}")
@@ -240,8 +247,8 @@ async def submit_decision(issue_key: str, req: DecisionRequest, request: Request
 
 
 @app.post("/api/runs/{issue_key}/retry")
-async def retry_run(issue_key: str) -> dict:
-    return await automation.retry(issue_key)
+async def retry_run(issue_key: str, req: RetryRequest | None = None) -> dict:
+    return await automation.retry(issue_key, skip_pr_review=bool(req and req.skip_pr_review))
 
 
 # --------------------------------------------------------------------------- Jira ingress (flow 2)

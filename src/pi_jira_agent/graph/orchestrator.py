@@ -49,13 +49,25 @@ def route_after_review(state: GraphState) -> str:
     return _log(state, "review_agent", "failed_node")
 
 
+def route_after_coding(state: GraphState) -> str:
+    # A fix pass answers the PR review's findings, not a phase's plan steps, so the phase
+    # reviewer (which would call them unrequested changes) is not asked.
+    if state.get("fix_request"):
+        return _log(state, "coding_agent", "pr_review")
+    return _log(state, "coding_agent", "review_agent")
+
+
 def route_after_phase_gate(state: GraphState) -> str:
     if state.get("status") == "coding":
         return _log(state, "phase_gate", "coding_agent")
+    if state.get("pr_review_enabled"):
+        return _log(state, "phase_gate", "pr_review")
     return _log(state, "phase_gate", "await_final")
 
 
 def route_after_final_gate(state: GraphState) -> str:
     if state.get("status") == "creating_pr":
         return _log(state, "await_final", "pr_node")
+    if state.get("status") == "coding":
+        return _log(state, "await_final", "coding_agent")
     return _log(state, "await_final", "__end__")

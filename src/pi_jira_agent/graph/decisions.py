@@ -91,6 +91,15 @@ class FinalFinish(BaseModel):
     action: Literal["finish"] = "finish"
 
 
+class FinalFix(BaseModel):
+    """Send PR review findings back to the coding agent (R-57)."""
+
+    type: Literal["final_review"] = "final_review"
+    action: Literal["fix"] = "fix"
+    findings: list[int] = Field(default_factory=list, description="Numbers of the findings to fix.")
+    notes: str = ""
+
+
 # Pydantic's smart union picks the member whose (type, action) literals match.
 Decision = (
     RequirementsApprove
@@ -103,6 +112,7 @@ Decision = (
     | PhaseStop
     | FinalCreatePr
     | FinalFinish
+    | FinalFix
 )
 
 _adapter = TypeAdapter(Decision)
@@ -111,7 +121,7 @@ ALLOWED_ACTIONS: dict[str, set[str]] = {
     "requirements_approval": {"approve", "revise", "cancel"},
     "plan_approval": {"approve", "refine", "reject"},
     "phase_gate": {"continue", "stop"},
-    "final_review": {"create_pr", "finish"},
+    "final_review": {"create_pr", "finish", "fix"},
 }
 
 
@@ -141,12 +151,45 @@ def parse_decision(pending_type: str, payload: dict) -> BaseModel:
 #   /continue | /stop             (phase gate)
 #   /pr <title>                   (final review: create the pull request)
 #   /finish                       (final review: end without a PR)
+#   /fix [numbers] [notes]        (final review: send PR review findings back to coding)
 
 _COMMAND_RE = re.compile(r"^\s*/(?P<cmd>[a-z]+)\b\s*(?P<arg>.*)$", re.IGNORECASE | re.DOTALL)
 
 
-def command_help(pending_type: str) -> str:
-    """The reply schema the agent includes in every Jira comment."""
+def resolve_fix(decision: dict, review: dict) -> dict:
+    """Check a `fix` decision against what the final gate offered, and fill in its default.
+
+    No numbers means every `must` finding. Raises ValueError when there is nothing to fix,
+    a number does not exist, or the gate no longer offers a fix.
+    """
+    if not review.get("enabled"):
+        raise ValueError("This run has no PR review, so there are no findings to fix.")
+    if not review.get("fix_available"):
+        if review.get("fix_rounds", 0) >= review.get("max_fix_rounds", 0):
+            raise ValueError(
+                f"The change was already sent back {review.get('fix_rounds', 0)} time(s), which is the limit. "
+                "Create the pull request or finish."
+            )
+        raise ValueError("The PR review did not run, so there are no findings to fix.")
+    known = {f["number"]: f for f in review.get("findings") or []}
+    numbers = list(dict.fromkeys(decision.get("findings") or []))
+    unknown = [n for n in numbers if n not in known]
+    if unknown:
+        raise ValueError(f"No finding numbered {', '.join(map(str, unknown))}; the review has {len(known)}.")
+    notes = (decision.get("notes") or "").strip()
+    if not numbers:
+        numbers = [n for n, f in known.items() if f.get("severity") == "must"]
+        if not numbers and not notes:
+            raise ValueError("There is no 'must' finding to fix. Name the findings by number, or add notes.")
+    return {**decision, "findings": numbers, "notes": notes}
+
+
+def command_help(pending_type: str, *, fix: bool = False) -> str:
+    """The reply schema the agent includes in every Jira comment.
+
+    ``fix`` adds the final gate's `/fix` line, which is only offered while the run has
+    review findings to act on.
+    """
     lines = {
         "requirements_approval": [
             "/approve - accept these requirements and start planning",
@@ -168,6 +211,12 @@ def command_help(pending_type: str) -> str:
             "/finish - end the run without a pull request",
         ],
     }[pending_type]
+    if fix and pending_type == "final_review":
+        lines = [
+            *lines,
+            "/fix - send every 'must' finding back to be fixed",
+            "/fix 1 3 <optional notes> - send those findings back, with anything you want to add",
+        ]
     return "Reply with one of:\n" + "\n".join(lines)
 
 
@@ -203,4 +252,10 @@ def parse_comment_command(pending_type: str, comment_body: str) -> dict | None:
             return {"action": "create_pr", "pr_title": arg}
         if cmd in {"finish", "done", "approve"}:
             return {"action": "finish"}
+        if cmd == "fix":
+            # Leading numbers (spaces or commas between them) pick findings; the rest is a note.
+            picked = re.match(r"^((?:\d+[\s,]*)*)(.*)$", arg, re.DOTALL)
+            numbers = [int(n) for n in re.findall(r"\d+", picked.group(1))] if picked else []
+            notes = picked.group(2).strip() if picked else arg
+            return {"action": "fix", "findings": numbers, "notes": notes}
     return None

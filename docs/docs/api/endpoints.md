@@ -21,10 +21,14 @@ Start a run. Fetches the issue from Jira unless inline text is supplied.
 { "issue_key": "WAAS-643" }
 { "issue_key": "WAAS-643", "repos": ["web", "api"] }
 { "issue_key": "DEV-1", "summary": "…", "description": "…" }
+{ "issue_key": "WAAS-643", "pr_review": false }
 ```
 
 `repos` names the repositories the run may work in, by `name` from `repos.json`. Omit it (or send
 an empty list) to use the repos flagged `default_selected`. An unknown name is rejected with `400`.
+
+`pr_review` switches the [whole-change review](../agents/pr-review-agent.md) before the final gate
+on or off for this run. Omit it to use `PR_REVIEW_DEFAULT`.
 
 Returns the run status. Starting an issue that is already running or paused returns its current status without restarting it.
 
@@ -47,7 +51,8 @@ Full status:
 | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → the run's worktree diff, new files included; `phase_diffs` holds one such map per accepted phase, each with only that phase's changes |
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
 | `error`, `stuck_on` | present when `status == "stuck_error"`: a node raised, or the run was interrupted by a restart and already had its one automatic resume |
-| `decision_log` | one entry per answered gate: `gate`, `action`, `by` (`ui` or `jira:<accountId>`), `at` |
+| `decision_log` | one entry per answered gate: `gate`, `action`, `by` (`ui` or `jira:<accountId>`), `at`; final-gate entries also carry `review` (`shown`, `fix`, `left`) |
+| `pr_review_enabled`, `pr_review`, `pr_review_skipped`, `fix_rounds` | whether the run reviews the whole change, the latest result (`summary`, `findings[]`, `resolved[]`, `not_reviewed[]`, `dropped_findings[]`), whether it was skipped, and fix rounds so far. The pending `final_review` payload carries the same as `pr_review`, plus `fix_available` and `max_fix_rounds` |
 | `usage` | what the run spent on model calls: `by_stage[]` (`stage`, `calls`, `input`, `output`, `cache_read`, `cost_usd`, `unpriced`), totals `calls`, `input`, `output`, `cost_usd`, `unpriced_calls`, and `budget_usd` (null without a budget) |
 | `auto_resumes` | how often the service resumed the run by itself after a restart (0 or 1) |
 
@@ -66,11 +71,15 @@ between phases), so without it a double-click or a resent request could answer t
 | `requirements_approval` | `{"action":"approve","requirements":{…},"acknowledge_scope":false}` · `{"action":"revise","notes":"…"}` · `{"action":"cancel"}` |
 | `plan_approval` | `{"action":"approve","mode":"all"}` · `{"action":"approve","mode":"phased"}` · `{"action":"refine","notes":"…"}` · `{"action":"reject"}` |
 | `phase_gate` | `{"action":"continue"}` · `{"action":"stop"}` |
-| `final_review` | `{"action":"create_pr","pr_title":"…","pr_description":"…"}` · `{"action":"finish"}` |
+| `final_review` | `{"action":"create_pr","pr_title":"…","pr_description":"…"}` · `{"action":"finish"}` · `{"action":"fix","findings":[1,3],"notes":"…"}` |
 
 ### `POST /api/runs/{key}/retry`
 
 Resume a run stuck on a node that raised (timeout, missing key, git failure) from its last checkpoint. `409` when the run is running.
+
+The body is optional. `{"skip_pr_review": true}` continues a run that is stuck on `pr_review`
+without the review; the final gate then says the change was not reviewed. It is refused with
+`400` when the run is stuck on anything else.
 
 ### `GET /api/auth/config`
 
