@@ -24,6 +24,10 @@ A node raised an unhandled exception (LLM auth error, API timeout, subprocess cr
 
 **Recovery:** click Retry (or `POST /runs/{key}/retry`).
 
+A run that reaches `RUN_BUDGET_USD` stops the same way, with an error naming the budget and what was
+spent. Retrying it straight away hits the same check: raise the budget, restart the service, then
+retry. See [Configuration](../getting-started/configuration.md#cost).
+
 ### 2. Review exhausted (`failed`)
 
 The review agent rejected the diff `REVIEW_MAX_ITERATIONS` times. Terminal state.

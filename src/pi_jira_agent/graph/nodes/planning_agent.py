@@ -1,5 +1,7 @@
 import logging
 
+from ... import usage
+from ...config import StageModelConfig
 from ...models import AgentResult, JiraIssue
 from ...pi_agent import PiAgentExecutor
 from ...workspace import RunWorkspaces
@@ -14,11 +16,19 @@ PlanningNode = AsyncNode
 
 
 def make_planning_agent(
-    pi_agent: PiAgentExecutor, repo_map: RepoMap, workspaces: RunWorkspaces, slots: PiSlots
+    pi_agent: PiAgentExecutor,
+    repo_map: RepoMap,
+    workspaces: RunWorkspaces,
+    slots: PiSlots,
+    *,
+    budget_usd: float = 0.0,
 ) -> PlanningNode:
+    cfg = StageModelConfig(provider=pi_agent.provider, model=pi_agent.model, api_key="")
+
     async def planning_agent(state: GraphState) -> dict:
         issue: JiraIssue = state["issue"]
         progress.mark(issue.key, "planning_agent")
+        usage.check_budget(state, budget_usd)
         notes = state.get("plan_notes", "")
         # On a refine, hand the planner its previous plan plus the reviewer's notes so it
         # revises incrementally instead of re-exploring the whole repository.
@@ -42,10 +52,12 @@ def make_planning_agent(
                 plan=previous_plan,
                 requirements=state.get("requirements"),
                 reviewer_notes=notes,
+                max_cost_usd=usage.remaining(state, budget_usd),
             )
         phases_total = len(plan_result.phases) if plan_result.phases else 1
         logger.info("Plan for %s: %d step(s), %d phase(s)", issue.key, len(plan_result.plan_steps), phases_total)
         return {
+            "usage": usage.appended(state, usage.from_pi("planning", cfg, plan_result.usage)),
             "plan_result": plan_result,
             "phases_total": phases_total,
             "plan_notes": "",

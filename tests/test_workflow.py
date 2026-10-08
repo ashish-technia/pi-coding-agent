@@ -703,3 +703,71 @@ async def test_run_interrupted_in_its_first_node_resumes_after_a_restart(fakes, 
         assert status["status"] == "pending_requirements" and status["auto_resumes"] == 1
     finally:
         await svc.stop()
+
+
+async def test_run_records_tokens_and_cost_per_stage(service, fakes):
+    key = _key()
+    await service.start_run(key)
+    await wait_paused(service, key)
+    await service.submit_decision(key, {"action": "approve"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_plan"
+    used = status["usage"]
+    assert [s["stage"] for s in used["by_stage"]] == ["planning"], "the fake chat model reports no usage"
+    assert used["by_stage"][0] == {
+        "stage": "planning",
+        "calls": 1,
+        "input": 12000,
+        "output": 900,
+        "cache_read": 4000,
+        "cost_usd": 0.05,
+        "unpriced": 0,
+    }
+    assert used["budget_usd"] is None
+
+    await service.submit_decision(key, {"action": "approve", "mode": "all"})
+    status = await wait_paused(service, key)
+    assert status["status"] == "pending_final"
+    coding = next(s for s in status["usage"]["by_stage"] if s["stage"] == "coding")
+    assert coding["calls"] == 2, "one coding pass per review round"
+    assert status["usage"]["cost_usd"] == pytest.approx(0.15)
+    assert fakes["runner"].calls[0]["max_cost_usd"] is None
+
+
+async def test_run_stops_at_its_budget_and_continues_after_it_is_raised(fakes, monkeypatch):
+    from pi_jira_agent.config import settings
+    from pi_jira_agent.service import AutomationService
+
+    # Planning costs 0.05 and the first coding pass 0.05, so the review that follows starts at the cap.
+    monkeypatch.setattr(settings, "run_budget_usd", 0.10)
+    svc = AutomationService()
+    await svc.start()
+    key = _key()
+    try:
+        await svc.start_run(key)
+        await wait_paused(svc, key)
+        await svc.submit_decision(key, {"action": "approve"})
+        await wait_paused(svc, key)
+        await svc.submit_decision(key, {"action": "approve", "mode": "all"})
+        status = await wait_paused(svc, key)
+        assert status["status"] == "stuck_error"
+        assert "reached its budget of $0.10" in status["error"]
+        assert status["stuck_on"] == ["review_agent"]
+        assert status["usage"]["budget_usd"] == 0.10
+        # The first coding session was told what the run had left.
+        assert fakes["runner"].calls[1]["max_cost_usd"] == pytest.approx(0.05)
+        assert runs_root().joinpath(key).exists(), "a stuck run keeps its worktrees"
+    finally:
+        await svc.stop()
+
+    # Someone raises the budget and restarts; the run is retried from where it stopped.
+    monkeypatch.setattr(settings, "run_budget_usd", 1.0)
+    svc = AutomationService()
+    await svc.start()
+    try:
+        await svc.retry(key)
+        status = await wait_paused(svc, key)
+        assert status["status"] == "pending_final"
+        assert status["usage"]["cost_usd"] == pytest.approx(0.15)
+    finally:
+        await svc.stop()

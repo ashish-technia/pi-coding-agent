@@ -67,6 +67,11 @@ killing an in-flight run.
 `decision_log` (bookkeeping) gets one entry per answered gate: `gate`, `action`, `by` and `at`. `by` is set
 by the service, `ui` or `jira:<accountId>`, never taken from the request.
 
+`usage` (bookkeeping) is the run's cost ledger: one entry per model call that returned, with `stage`,
+`provider`, `model`, `input`, `output`, `cache_read`, `cache_write`, `cost_usd` and `at`. There is no
+reducer on it, so a node returns the whole list with its entry added (`usage.appended`). `cost_usd` is
+`None` for a call whose model has no price. `usage.check_budget` reads it before every model call.
+
 `auto_resumes` (bookkeeping, next to `retry_count`) counts how often the service resumed the run by
 itself after a restart; it stops at one.
 

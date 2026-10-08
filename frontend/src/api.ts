@@ -140,7 +140,7 @@ export interface ActivityEvent {
   seq: number
   at: number
   source?: 'pi' | 'llm'
-  ev: 'node' | 'start' | 'model_turn' | 'assistant' | 'tool' | 'tool_done' | 'blocked' | 'validation' | 'done' | 'error' | 'llm_call' | 'llm_done'
+  ev: 'node' | 'start' | 'model_turn' | 'assistant' | 'tool' | 'tool_done' | 'blocked' | 'validation' | 'usage' | 'done' | 'error' | 'llm_call' | 'llm_done'
   t?: number
   node?: string
   label?: string
@@ -157,11 +157,35 @@ export interface ActivityEvent {
   error?: boolean
   size?: number
   round?: number
+  input?: number
+  output?: number
+  cost?: number
   problems?: string[]
   files_read?: number
   plan_steps?: number
   corrections?: number
   stage?: string
+}
+
+export interface StageUsage {
+  stage: string
+  calls: number
+  input: number
+  output: number
+  cache_read: number
+  cost_usd: number
+  /** Calls whose model has no price in MODEL_PRICES. */
+  unpriced: number
+}
+
+export interface RunUsage {
+  by_stage: StageUsage[]
+  calls: number
+  input: number
+  output: number
+  cost_usd: number
+  unpriced_calls: number
+  budget_usd: number | null
 }
 
 export interface RunStatus {
@@ -187,6 +211,7 @@ export interface RunStatus {
   iteration: number | null
   max_iterations: number | null
   retry_count: number
+  usage?: RunUsage
   code_result: AgentResult | null
   /** Repo names this run works in, primary first. */
   repos: string[]

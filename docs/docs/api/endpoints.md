@@ -48,6 +48,7 @@ Full status:
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
 | `error`, `stuck_on` | present when `status == "stuck_error"`: a node raised, or the run was interrupted by a restart and already had its one automatic resume |
 | `decision_log` | one entry per answered gate: `gate`, `action`, `by` (`ui` or `jira:<accountId>`), `at` |
+| `usage` | what the run spent on model calls: `by_stage[]` (`stage`, `calls`, `input`, `output`, `cache_read`, `cost_usd`, `unpriced`), totals `calls`, `input`, `output`, `cost_usd`, `unpriced_calls`, and `budget_usd` (null without a budget) |
 | `auto_resumes` | how often the service resumed the run by itself after a restart (0 or 1) |
 
 ### `POST /api/runs/{key}/decision`

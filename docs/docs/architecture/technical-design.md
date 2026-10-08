@@ -402,10 +402,11 @@ The Node runner is the only place Pi is invoked. Its contract with Python:
 | `plan` | execute: the work order (whole plan or current phase); plan: the previous plan when refining |
 | `reviewerNotes` | refine only |
 | `reviewFeedback` | execute only, on a retry after rejection |
+| `maxCostUsd` | what the run may still spend, when it has a budget. The session aborts itself once its cost passes this and the runner exits with an error |
 | `repoRoots` | every attached repository: `{name, path, properties}`. Empty means "just `repoCwd`" |
 | `branchName`, `repoCwd`, `agentDir`, `model`, `provider`, `thinkingLevel`, `systemPrompt` | session setup; `repoCwd` is the primary repository |
 
-**stdout**: exactly one JSON object, the `AgentResult` (`branch_name`, `commit_message`, `pr_title`, `pr_description`, `files_changed`, `analysis`, `plan_steps[]`, `verification[]`, `open_questions[]`, `notes_response`, `phases[]`). The runner normalises paths to POSIX form and drops a `phases` grouping that does not cover every step exactly once.
+**stdout**: exactly one JSON object, the `AgentResult` (`branch_name`, `commit_message`, `pr_title`, `pr_description`, `files_changed`, `analysis`, `plan_steps[]`, `verification[]`, `open_questions[]`, `notes_response`, `phases[]`, `usage`). `usage` is what the session used, from Pi's session stats: `input`, `output`, `cache_read`, `cache_write` (tokens) and `cost` (USD); the node moves it into `GraphState["usage"]`. The runner normalises paths to POSIX form and drops a `phases` grouping that does not cover every step exactly once.
 
 ### 9.1 Attached repositories
 
@@ -443,7 +444,7 @@ its process. A refused call is reported as a `blocked` event. The shell denylist
 depth, not a boundary - a command string is easy to disguise - so `bash` is contained only once
 each run has its own sandbox.
 
-**stderr**: free text for humans, plus `@@PI {json}` lines that Python forwards to the activity buffer: `start`, `model_turn`, `tool`, `tool_done`, `blocked`, `assistant`, `validation`, `done`, `error`. Each carries `t`, seconds since the runner started.
+**stderr**: free text for humans, plus `@@PI {json}` lines that Python forwards to the activity buffer: `start`, `model_turn`, `tool`, `tool_done`, `blocked`, `assistant`, `validation`, `done`, `usage`, `error`. Each carries `t`, seconds since the runner started.
 
 **Modes and tools**:
 

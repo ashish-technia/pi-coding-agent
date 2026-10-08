@@ -167,6 +167,22 @@ class Settings(BaseSettings):
             "the gates. 0 disables the cap."
         ),
     )
+    run_budget_usd: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Most a single run may spend on model calls, in USD. Checked before every model "
+            "call and inside each Pi session; a run that reaches it stops as a stuck run. 0 disables it."
+        ),
+    )
+    model_prices: str = Field(
+        default="",
+        description=(
+            "JSON object of USD per million tokens for the stages that call a model directly "
+            '(requirements, review): {"gpt-4.1": {"input": 2.0, "output": 8.0, "cached_input": 0.5}}. '
+            "Pi prices its own sessions. A model missing here is recorded with tokens but no cost."
+        ),
+    )
     review_rules_path: str = Field(
         default="review-rules.md",
         description="Markdown file with the team's must-check review rules, fed to the review agent.",
@@ -373,6 +389,15 @@ class Settings(BaseSettings):
             api_key=self.review_api_key,
         )
 
+    def prices(self) -> dict[str, dict[str, float]]:
+        """``MODEL_PRICES`` parsed; a malformed value is an error at startup, not a silent zero."""
+        if not self.model_prices.strip():
+            return {}
+        parsed = json.loads(self.model_prices)
+        if not isinstance(parsed, dict) or not all(isinstance(v, dict) for v in parsed.values()):
+            raise ValueError("MODEL_PRICES must be a JSON object of model -> {input, output, cached_input}.")
+        return {str(model): {k: float(v) for k, v in rate.items()} for model, rate in parsed.items()}
+
     def review_rules(self) -> str:
         path = Path(self.review_rules_path)
         if path.is_file():
@@ -496,6 +521,10 @@ class Settings(BaseSettings):
                 "jira_comment_channel_enabled": self.jira_comment_channel_enabled,
                 "gate_approvers": self.gate_approver_rules(),
                 "jira_trigger_label": self.jira_trigger_label,
+            },
+            "cost": {
+                "run_budget_usd": self.run_budget_usd,
+                "priced_models": sorted(self.prices()),
             },
             "review": {
                 "max_iterations": self.review_max_iterations,
