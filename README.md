@@ -18,7 +18,7 @@ Two ways to drive it:
 | Layer | Choice | Why |
 |---|---|---|
 | Orchestration | LangGraph `StateGraph` + Postgres (or SQLite) checkpointer | pauses survive restarts and can wait for days |
-| Coding harness | Pi SDK (`@mariozechner/pi-coding-agent`) | multi-provider; read-only tool allowlist gives a true plan mode |
+| Coding harness | Pi SDK (`@earendil-works/pi-coding-agent` 1.1.0, pinned) | multi-provider; read-only tool allowlist gives a true plan mode |
 | Requirements & review | LangChain chat models (OpenAI / Anthropic / Google) | structured output per stage, provider chosen per stage |
 | API | FastAPI | REST for the UI and for Jira Automation web requests |
 | UI | React + Vite + TypeScript SPA | wizard, editable requirements, diff viewer, PR dialog |

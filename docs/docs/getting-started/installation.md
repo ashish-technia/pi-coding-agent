@@ -7,7 +7,7 @@ title: Installation
 
 ## Prerequisites
 
-- Python 3.12, Node.js 22 and [uv](https://docs.astral.sh/uv/) (`pip install uv` works)
+- Python 3.12, Node.js 22.19 or later (the Pi SDK requires it) and [uv](https://docs.astral.sh/uv/) (`pip install uv` works)
 - A local clone of each target repository (`REPO_LOCAL_PATH`, or several listed in `repos.json` — see [Repositories](./repositories.md))
 - API keys for the model providers you choose, a Jira API token, Bitbucket credentials
 - Optional: Docker for Postgres and Redis

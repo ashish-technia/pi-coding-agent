@@ -1,5 +1,5 @@
 import process from "node:process";
-import { AuthStorage, ModelRegistry, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent";
+import { ModelRuntime, SessionManager, createAgentSession } from "@earendil-works/pi-coding-agent";
 
 async function main() {
   const provider = process.env.PI_PROVIDER ?? "openai";
@@ -8,16 +8,14 @@ async function main() {
     throw new Error("PI_PROVIDER_API_KEY is required");
   }
 
-  const authStorage = AuthStorage.create();
-  authStorage.setRuntimeApiKey(provider, apiKey);
-  const modelRegistry = ModelRegistry.create(authStorage);
+  const modelRuntime = await ModelRuntime.create();
+  await modelRuntime.setRuntimeApiKey(provider, apiKey);
 
   const { session } = await createAgentSession({
     cwd: process.cwd(),
     agentDir: process.cwd(),
-    sessionManager: SessionManager.inMemory(),
-    authStorage,
-    modelRegistry
+    sessionManager: SessionManager.inMemory(process.cwd()),
+    modelRuntime
   });
 
   session.subscribe((event) => {
@@ -27,6 +25,7 @@ async function main() {
   const result = await session.prompt("Reply with exactly: OK");
   process.stderr.write(`PROMPT_RESULT_TYPE=${typeof result}\n`);
   process.stderr.write(`PROMPT_RESULT=${JSON.stringify(result)}\n`);
+  session.dispose();
 }
 
 main().catch((error) => {
