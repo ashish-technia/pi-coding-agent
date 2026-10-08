@@ -170,23 +170,25 @@ class JiraIssue(BaseModel):
     url: str = ""
 
     def as_context(self) -> str:
-        """Plain-text rendering handed to the LLM stages."""
+        """Plain-text rendering handed to the LLM stages, marked as text written by Jira users."""
+        from .untrusted import neutralise, wrap
+
         lines = [
-            f"Jira key: {self.key}",
-            f"Type: {self.issue_type or 'unknown'}   Status: {self.status or 'unknown'}",
-            f"Summary: {self.summary}",
-            f"Reporter: {self.reporter or ''}",
-            f"Labels: {', '.join(self.labels) if self.labels else '-'}",
+            f"Jira key: {neutralise(self.key)}",
+            f"Type: {neutralise(self.issue_type) or 'unknown'}   Status: {neutralise(self.status) or 'unknown'}",
+            f"Summary: {neutralise(self.summary)}",
+            f"Reporter: {neutralise(self.reporter)}",
+            f"Labels: {neutralise(', '.join(self.labels)) if self.labels else '-'}",
             "",
             "Description:",
-            self.description or "(empty)",
+            neutralise(self.description) or "(empty)",
         ]
         if self.comments:
             lines += ["", f"Comments ({len(self.comments)}):"]
             for c in self.comments:
-                lines.append(f"--- {c.author or 'unknown'} @ {c.created}")
-                lines.append(c.body)
-        return "\n".join(lines)
+                lines.append(f"--- {neutralise(c.author) or 'unknown'} @ {neutralise(c.created)}")
+                lines.append(neutralise(c.body))
+        return wrap(lines)
 
 
 def issue_from_api(payload: dict, base_url: str = "") -> JiraIssue:

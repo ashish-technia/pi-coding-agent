@@ -4,7 +4,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from ... import prompts, usage
+from ... import prompts, untrusted, usage
 from ...config import StageModelConfig
 from ...models import AgentResult, JiraIssue, RequirementsSpec
 from .. import progress
@@ -108,7 +108,8 @@ def _build_review_prompt(
     omitted_files: list[str] | None = None,
     earlier_phases: int = 0,
 ) -> str:
-    parts = [f"Jira issue: {issue.key} - {issue.summary}"]
+    # The summary is Jira text; the approved requirement below it is what a human signed off.
+    parts = [untrusted.wrap([f"Jira issue: {issue.key} - {untrusted.neutralise(issue.summary)}"])]
     if requirements:
         parts += [
             "",
@@ -122,7 +123,7 @@ def _build_review_prompt(
             *[f"    - {o}" for o in requirements.out_of_scope],
         ]
     else:
-        parts.append(f"Description: {issue.description}")
+        parts.append(untrusted.wrap([f"Description: {untrusted.neutralise(issue.description)}"]))
     if plan:
         parts += ["", "Approved plan for this phase:", f"  Branch: {plan.branch_name}"]
         if plan.analysis:
