@@ -23,6 +23,8 @@ function describe(e: ActivityEvent): { icon: string; text: string; cls?: string 
       return e.error
         ? { icon: '✗', text: `${e.tool} failed`, cls: 'danger' }
         : { icon: '✓', text: `${e.tool} → ${e.size ?? 0} chars`, cls: 'muted' }
+    case 'blocked':
+      return { icon: '⛔', text: `${e.tool} blocked: ${e.text ?? ''}`, cls: 'warn' }
     case 'validation':
       return { icon: '⚠', text: `plan validation round ${e.round}: ${(e.problems ?? []).join(' | ')}`, cls: 'warn' }
     case 'done':

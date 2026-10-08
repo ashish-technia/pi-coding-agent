@@ -222,7 +222,7 @@ class PiAgentExecutor:
             ev = event.get("ev")
             if ev == "tool":
                 logger.info("[pi %s] %s %s", issue.key, event.get("tool"), event.get("args", ""))
-            elif ev in {"start", "done", "validation"}:
+            elif ev in {"start", "done", "validation", "blocked"}:
                 logger.info("[pi %s] %s %s", issue.key, ev, {k: v for k, v in event.items() if k not in {"ev", "t"}})
 
         try:

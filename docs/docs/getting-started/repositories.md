@@ -127,8 +127,11 @@ Phases slice by stage, not by repository.
   descriptions cross-reference by repo name and merging in a sensible order stays a human job.
 - **Planning across repositories costs context and time.** Two large codebases in plan mode is a
   lot of reading; raise `PI_TIMEOUT_SECONDS` and tick only the repos the issue really touches.
-- **Containment is checked, not enforced.** Pi's tools accept any absolute path and this build of
-  the SDK exposes no pre-tool hook, so the runner verifies after the fact that every path the
-  agent reported lies inside an attached repo. In plan mode an offending path is sent back for
-  correction; in execute mode the run fails loudly. Keep `repos.json` to repositories the agent
-  is genuinely allowed to change.
+- **File tools are contained; the shell is not yet.** Pi's tools accept any absolute path, so the
+  runner checks every tool call before it runs: `edit` and `write` outside the attached
+  repositories are refused, and in plan mode so are `read`, `grep`, `find` and `ls`. A refused
+  call shows as "blocked" in the activity panel and the agent carries on. `bash` in execute mode
+  only passes a short denylist (no `git push`, `git commit`, `git remote` or network clients), so
+  a shell command can still reach outside until runs get a sandbox. The runner also still
+  verifies afterwards that every reported path lies inside an attached repo. Keep `repos.json`
+  to repositories the agent is genuinely allowed to change.

@@ -427,11 +427,23 @@ A single root keeps the previous behaviour byte for byte, so single-repo setups 
 `validatePlan` resolves each step against its repository before checking that the file exists and
 was opened with `read`, and every path — in plan or execute mode — must resolve **inside one of the
 roots**. In plan mode an offending path becomes a correction round; in execute mode the run fails.
-That check is detection, not prevention: the tools accept any absolute path and this build of the
-SDK ships no pre-tool hook, so the runner can only refuse to hand Python a result that touched
-something nobody attached.
+That check is the second line. The first is a Pi `tool_call` handler (`makeToolCheck`), which the
+runner registers as an inline extension and which refuses a call before it runs:
 
-**stderr**: free text for humans, plus `@@PI {json}` lines that Python forwards to the activity buffer: `start`, `model_turn`, `tool`, `tool_done`, `assistant`, `validation`, `done`, `error`. Each carries `t`, seconds since the runner started.
+| Tool | Execute mode | Plan mode (read-only) |
+|---|---|---|
+| `edit`, `write` | path must resolve inside a root | refused |
+| `read`, `grep`, `find`, `ls` | not restricted | path must resolve inside a root; a glob may not climb out with `..` |
+| `bash`, `powershell` | refused when the command matches `SHELL_DENYLIST` (`git push`, `git commit`, `git remote`, network clients) | refused |
+
+Paths are judged after `~` expansion and with links followed, so a link inside a repository cannot
+point a tool outside it. A handler that throws blocks the call, so the check fails closed. The
+runner loads no extension files (`noExtensions`): nothing from the repository under work runs in
+its process. A refused call is reported as a `blocked` event. The shell denylist is defence in
+depth, not a boundary - a command string is easy to disguise - so `bash` is contained only once
+each run has its own sandbox.
+
+**stderr**: free text for humans, plus `@@PI {json}` lines that Python forwards to the activity buffer: `start`, `model_turn`, `tool`, `tool_done`, `blocked`, `assistant`, `validation`, `done`, `error`. Each carries `t`, seconds since the runner started.
 
 **Modes and tools**:
 

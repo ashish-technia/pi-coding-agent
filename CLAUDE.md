@@ -35,8 +35,9 @@ and the module list at the end of it are easy to leave behind.
 ## Commands
 
 ```bash
-scripts/check.sh all                         # what CI runs: lint, types, tests, frontend, docs
-scripts/check.sh lint | types | test | test-pg | frontend | docs   # one check
+scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
+scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
+node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
 pytest -q                                    # full suite (80 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
@@ -147,8 +148,11 @@ of being recreated empty.
 The first selected repo (in `repos.json` order, not click order) is the *primary*: its worktree is the Pi
 session's `cwd`, because `bash` has only one working directory. Everything else is addressed by
 absolute path, which works because Pi's tools resolve absolute paths as given — `resolveToCwd` in
-the SDK does not sandbox to `cwd`. That also means containment is only checked after the fact, in
-the runner; there is no pre-tool hook in this build.
+the SDK does not sandbox to `cwd`. Containment is therefore the runner's job: `makeToolCheck`
+is registered as a Pi `tool_call` handler and refuses a call before it runs. `edit` and `write`
+must land inside the roots in every mode; in a read-only mode `read`, `grep`, `find` and `ls` are
+held to the roots too and a shell is refused. Shell commands in execute mode only pass a short
+denylist (`SHELL_DENYLIST`), so bash is not contained until each run has a sandbox (R-12).
 
 Anything per-repo is keyed by name: `diffs`, `phase_diff`, `phase_diffs`, `tree_shas`, `phase_base`, `pr_urls`.
 `diffs` is the whole change so far (for the human); `phase_diff` is what the current phase added (for the
