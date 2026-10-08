@@ -38,7 +38,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (84 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (85 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -204,8 +204,10 @@ byte-identical to the single-repo behaviour (no `repo` field, no path prefixes),
 existing setups unaffected. `resolveRepoPath` accepts an absolute path, a `repo` field plus a
 relative path, or a `repo/path` string, and rejects anything resolving outside the roots.
 
-The same script serves three modes, selected by the payload: plan, refine (plan + `reviewerNotes`) and execute
-(`executeChanges: true`). Plan mode sets `sessionOptions.tools = ["read","grep","find","ls"]` — omitting `tools`
+The same script serves four modes, selected by the payload: plan, refine (plan + `reviewerNotes`), execute
+(`executeChanges: true`) and review (`mode: "review"`, code in `node/review-mode.mjs`, result `ReviewResult`
+through `PiAgentExecutor.run_review`). Review mode is read-only, sees the change through its own
+`changed_files` and `file_diff` tools, and drops findings that cite a file the session never opened. Plan mode sets `sessionOptions.tools = ["read","grep","find","ls"]` — omitting `tools`
 would silently enable bash/edit/write, so that assignment is what makes plan mode read-only. After a plan is
 produced, `validatePlan` rejects steps whose file does not exist or that the agent never opened with `read`,
 and feeds the problems back for up to `PLAN_MAX_CORRECTIONS` rounds.

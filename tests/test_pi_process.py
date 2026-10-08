@@ -134,3 +134,32 @@ async def test_cancelling_the_run_kills_the_whole_process_tree(tmp_path):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert await _gone(child), "a process the agent started outlived the cancelled run"
+
+
+async def test_review_sends_the_review_payload_and_parses_the_findings(tmp_path):
+    script = tmp_path / "echo_review.py"
+    script.write_text(
+        "import json, sys\n"
+        "p = json.load(sys.stdin)\n"
+        "print(json.dumps({'summary': p['mode'] + ' of ' + ','.join(sorted(p['review']['diff'])),\n"
+        "  'findings': [{'number': 1, 'severity': 'must', 'category': 'bug', 'claim': p['review']['rules'],\n"
+        "                'file': 'a.py', 'line': 3}],\n"
+        "  'resolved': [f['number'] for f in p['review']['previous']],\n"
+        "  'not_reviewed': [str(p['issue'])], 'usage': {'input': 5, 'output': 1, 'cost': 0.01}}))\n",
+        encoding="utf-8",
+    )
+    result = await _executor(script).run_review(
+        "review-1",
+        issue=None,
+        repo_cwd=str(tmp_path),
+        repo_roots=[{"name": "web", "path": str(tmp_path)}],
+        diff={"web": {"base": "abc", "tree": "def"}},
+        rules="No secrets",
+        previous=[{"number": 4, "severity": "must", "claim": "x"}],
+    )
+    assert result.summary == "review of web"
+    assert result.findings[0].claim == "No secrets"
+    assert (result.findings[0].file, result.findings[0].line) == ("a.py", 3)
+    assert result.resolved == [4]
+    assert result.not_reviewed == ["None"], "a review without an issue sends none"
+    assert result.usage == {"input": 5, "output": 1, "cost": 0.01}
