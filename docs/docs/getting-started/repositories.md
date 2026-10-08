@@ -61,6 +61,10 @@ issues on the same repository never see each other's changes, and the clone stay
 worktrees and the local run branch are removed when the run ends (pull request created, finished,
 cancelled or failed); a run stuck on an error keeps them so it can be retried.
 
+If the fetch fails (an expired token, no network), the run still starts, from the last commit that
+was fetched, and its activity feed carries a warning that it may be behind the remote. The same
+credential problem will stop the push when the pull request is created.
+
 A fresh worktree has no installed dependencies and no ignored local files such as `node_modules`
 or a local `.env`.
 
