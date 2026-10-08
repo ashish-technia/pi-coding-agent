@@ -51,6 +51,7 @@ Full status:
 | `code_result`, `diffs`, `phase_diffs`, `review_approved`, `review_feedback`, `iteration`, `max_iterations` | coding/review; `diffs` maps repo name → the run's worktree diff, new files included; `phase_diffs` holds one such map per accepted phase, each with only that phase's changes |
 | `pr_title`, `pr_urls` | delivery; `pr_urls` maps repo name → pull request URL |
 | `error`, `stuck_on` | present when `status == "stuck_error"`: a node raised, or the run was interrupted by a restart and already had its one automatic resume |
+| `base_shas` | repo name → the commit the run's worktree was created from |
 | `decision_log` | one entry per answered gate: `gate`, `action`, `by` (`ui` or `jira:<accountId>`), `at`; final-gate entries also carry `review` (`shown`, `fix`, `left`) |
 | `pr_review_enabled`, `pr_review`, `pr_review_skipped`, `fix_rounds` | whether the run reviews the whole change, the latest result (`summary`, `findings[]`, `resolved[]`, `not_reviewed[]`, `dropped_findings[]`), whether it was skipped, and fix rounds so far. The pending `final_review` payload carries the same as `pr_review`, plus `fix_available` and `max_fix_rounds` |
 | `manifest` | what produced the run, recorded at the start: `agent_version`, `agent_git_sha`, `pi_sdk_version`, `runner_sha`, `stages`, `prompts`, `rules`, `pack`, `created_at`. A standalone review carries the same under `manifest` |

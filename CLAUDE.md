@@ -39,7 +39,7 @@ and the module list at the end of it are easy to leave behind.
 scripts/check.sh all                         # what CI runs: lint, types, tests, runner, frontend, docs
 scripts/check.sh lint | types | test | test-pg | runner | frontend | docs   # one check
 node --test "node/tests/*.test.mjs"          # runner tests alone: a scripted model, no network or key
-pytest -q                                    # full suite (110 tests); external systems faked, git runs on temp repos
+pytest -q                                    # full suite (111 tests); external systems faked, git runs on temp repos
 pytest tests/test_workflow.py::test_plan_reject_cancels -q     # one test
 PI_TEST_DATABASE_URL=postgresql://pijira:pijira@localhost:5440/pijira pytest -q   # same suite against Postgres
 uv sync --extra dev                          # .venv from uv.lock; after editing deps: uv lock, commit both
@@ -155,7 +155,7 @@ A run never edits a configured clone. `prepare_workspace` (between `scope_check`
 `<RUNS_ROOT>/<issue key>/<repo>`, and records the commit in `GraphState["base_shas"]`. Worktree paths
 are derived, never stored. `AutomationService._release_workspace` removes them when a run ends in
 `done`, `failed` or `cancelled`; a `stuck_error` run keeps them, and a missing worktree raises instead
-of being recreated empty.
+of being recreated empty. A failed fetch is a warning, not an error: the run starts from the last fetched commit.
 
 The first selected repo (in `repos.json` order, not click order) is the *primary*: its worktree is the Pi
 session's `cwd`, because `bash` has only one working directory. Everything else is addressed by
